@@ -17,8 +17,6 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Sympy Tools")
     app.setOrganizationName("SympyTools")
-    from .ui.theme import apply_dark_theme
-    apply_dark_theme(app)
     from .ui.main_window import MainWindow
     win = MainWindow()
     win.show()

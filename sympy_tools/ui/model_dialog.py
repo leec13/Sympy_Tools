@@ -13,6 +13,8 @@ class ModelDialog(QDialog):
     def __init__(self, text: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Edit model")
+        from .theme import dialog_stylesheet
+        self.setStyleSheet(dialog_stylesheet())
         self.resize(760, 640)
         lay = QVBoxLayout(self)
         intro = QLabel(
@@ -51,11 +53,11 @@ class ModelDialog(QDialog):
         try:
             m = load_model(self.text)
         except ModelError as exc:
-            self.info.setStyleSheet("color:#ff7b72;")
+            self.info.setStyleSheet("color:#b00020;")
             self.info.setText(str(exc))
             return False
         n_hyp = len(m.assumptions)
-        self.info.setStyleSheet("color:#7ee787;")
+        self.info.setStyleSheet("color:#2e7d32;")
         self.info.setText(f"Valid model: {m.summary()}, {len(m.lp.definitions)} definitions, "
                           f"assumptions on {n_hyp} symbols.")
         return True

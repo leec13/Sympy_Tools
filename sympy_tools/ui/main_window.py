@@ -21,15 +21,15 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
 from ..core import jobs
 from ..core.jobs import EQUATION, EXPRESSION
 from ..core.model import ModelError, load_model
-from ..core.operations import (ALL_MOMENTS, COLLECT, COMPARE, DIFFERENT, EQUAL, EXPAND, FACTOR,
+from ..core.operations import (ALL_MOMENTS, COLLECT, COMPARE, EXPAND, FACTOR,
                                ISSERLIS, OPERATIONS, RECOGNIZE, SIMPLIFY, SUBSTITUTE, available)
 from ..core.output import overleaf, reading_latex
 from ..core.reading import ERROR, WARNING, categories, read_equation, read_expression, split_equation
 from ..settings import Settings
+from . import theme
 
-# colours for the dark theme (ui/theme.py)
-_COLORS = {"error": "#ff7b72", "warning": "#f0b45a", "info": "#9aa4af"}
-_VERDICT_COLORS = {EQUAL: "#7ee787", DIFFERENT: "#ff7b72", "undetermined": "#f0b45a"}
+_COLORS = theme.NOTE_COLORS
+_VERDICT_COLORS = theme.VERDICT_COLORS
 
 
 def _mono(size: int = 12) -> QFont:
@@ -118,13 +118,22 @@ class MainWindow(QMainWindow):
 
     # ================================================================ layout
     def _build(self) -> None:
-        central = QWidget()
+        central = QWidget(objectName="central")
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        self.setStyleSheet(theme.window_stylesheet())
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        band = QWidget(objectName="band")
+        band.setFixedHeight(5)
+        outer.addWidget(band)
+        body = QWidget()
+        outer.addWidget(body, 1)
+        root = QVBoxLayout(body)
 
         # --- model
         row = QHBoxLayout()
-        row.addWidget(QLabel("<b>Model:</b>"))
+        row.addWidget(QLabel(theme.title("Model:")))
         self.model_label = QLabel()
         self.model_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         row.addWidget(self.model_label, 1)
@@ -163,7 +172,7 @@ class MainWindow(QMainWindow):
 
         # --- reading
         row = QHBoxLayout()
-        lab = QLabel("<b>Read as:</b>")
+        lab = QLabel(theme.title("Read as:"))
         lab.setAlignment(Qt.AlignmentFlag.AlignTop)
         row.addWidget(lab)
         col = QVBoxLayout()
@@ -246,15 +255,15 @@ class MainWindow(QMainWindow):
         lower = QWidget()
         lay = QVBoxLayout(lower)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QLabel("<b>SymPy code</b>"))
+        lay.addWidget(QLabel(theme.title("SymPy code")))
         self.code_view = QPlainTextEdit(readOnly=True)
         self.code_view.setFont(_mono(12))
         self.code_view.setFixedHeight(self.code_view.fontMetrics().lineSpacing() * 3 + 14)
-        self.code_view.setStyleSheet("QPlainTextEdit { background: #161b22; color: #c9d1d9; }")
+        self.code_view.setObjectName("codeView")
         lay.addWidget(self.code_view)
 
         row = QHBoxLayout()
-        self.result_title = QLabel("<b>Result</b>")
+        self.result_title = QLabel(theme.title("Result"))
         row.addWidget(self.result_title)
         self.verdict_label = QLabel()
         row.addWidget(self.verdict_label, 1)
@@ -559,11 +568,11 @@ class MainWindow(QMainWindow):
 
     def _show(self, shown: _Shown) -> None:
         self._shown = shown
-        self.result_title.setText(f"<b>{html.escape(shown.title)}</b>")
+        self.result_title.setText(theme.title(html.escape(shown.title)))
         self.code_view.setPlainText(shown.code)
         self.result_view.setPlainText(shown.python)
         if shown.verdict_text:
-            color = _VERDICT_COLORS.get(shown.verdict, "#c9d1d9")
+            color = _VERDICT_COLORS.get(shown.verdict, "#333333")
             self.verdict_label.setText(f"<b style='color:{color}'>{html.escape(shown.verdict_text)}</b>")
         else:
             self.verdict_label.setText("")

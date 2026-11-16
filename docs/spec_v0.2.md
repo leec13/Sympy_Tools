@@ -9,7 +9,7 @@
 | **Isserlis (order 3)** | Chaque `T_…` présent est remplacé par ⟨abc⟩ ≈ ⟨ab⟩⟨c⟩ + ⟨ac⟩⟨b⟩ + ⟨bc⟩⟨a⟩ − 2⟨a⟩⟨b⟩⟨c⟩, c'est-à-dire la fermeture de niveau 2 de `moment_closure.py` (cumulants d'ordre 3 nuls). Code affiché : `rules = {T_…: …}` puis `result = expr.xreplace(rules)`. Le résultat n'est pas développé. Les moments d'ordre ≥ 4 ne sont pas touchés (remarque). Bouton grisé sans T. |
 | **Substitute definitions** | r_A1 → `rmaxA - s*(x1 - thA)**2` (section `[definitions]` du modèle). Une définition peut en utiliser une autre ; une boucle est une erreur. Code : `expr.xreplace(rules)`. Bouton grisé sans r_. |
 | **Recognize definitions** | Sens inverse, formule → r_A1. La règle est donnée ci-dessous. Bouton grisé si aucun symbole des formules (rmaxA, s…) n'est présent. |
-| **Thème sombre** | Toujours actif, pour distinguer la fenêtre de latex-preview. L'aperçu LaTeX reste une feuille blanche avec le texte noir, et l'image copiée aussi. |
+| **Identité visuelle** | Mode clair, avec un liseré de couleur en haut, un fond légèrement teinté et le cadre du code SymPy teinté, pour distinguer la fenêtre de latex-preview. Un thème sombre a été essayé puis abandonné (trop sombre). L'aperçu LaTeX reste une feuille blanche avec le texte noir, et l'image copiée aussi. |
 
 ## Règle de « Recognize definitions »
 

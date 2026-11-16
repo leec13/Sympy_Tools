@@ -99,7 +99,7 @@ Note: Factor and Simplify put everything over a common denominator as soon as th
 
 ## Look
 
-The window always has a dark theme, to tell it from latex-preview at a glance. The LaTeX preview keeps a white sheet with black text, and copied images are black on white.
+The window is light, like latex-preview, with its own identity so that it is easy to tell apart: a teal band at the top, a lightly tinted background, and the SymPy code pane tinted with a teal border. The colours are in `sympy_tools/ui/theme.py`. The LaTeX preview keeps a white sheet with black text, and copied images are black on white.
 
 ## Output and copy
 

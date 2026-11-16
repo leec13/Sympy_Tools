@@ -95,8 +95,8 @@ def test_v02_buttons_and_recognize(win):
     assert w.op_buttons["substitute"].isEnabled()
 
 
-def test_dark_theme_applies():
-    from sympy_tools.ui.theme import apply_dark_theme
-    app = QtWidgets.QApplication.instance()
-    apply_dark_theme(app)
-    assert app.palette().window().color().lightness() < 60
+def test_visual_identity(win):
+    w, app = win
+    assert w.centralWidget().objectName() == "central"
+    assert w.findChild(QtWidgets.QWidget, "band").height() == 5
+    assert w.code_view.objectName() == "codeView"

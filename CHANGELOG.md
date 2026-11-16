@@ -10,7 +10,9 @@ Specified with the user before development (`docs/spec_v0.2.md`, cases 16 to 26)
   (one per product of moments), only where the decomposition is exact and unique;
   other coefficients are kept and listed; the result is checked.
 - The three buttons are greyed out when they have nothing to do.
-- Dark theme (always on); the LaTeX preview stays a white sheet with black text.
+- Visual identity: light, with a teal band at the top, a tinted background and a tinted
+  SymPy code pane (a dark theme was tried and dropped: too dark). The LaTeX preview stays
+  a white sheet with black text.
 - SymPy code pane: three lines.
 
 ## v0.1.0 — 2026-11-16

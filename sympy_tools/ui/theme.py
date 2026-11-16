@@ -1,45 +1,39 @@
-"""Dark theme (always on), so that the window is easy to tell from latex-preview.
+"""Visual identity: light, like latex-preview, but easy to tell apart.
 
-The LaTeX preview keeps a white sheet with black text (latex-preview's widget), and
-copied images stay black on white, as in presentations.
+- a coloured band at the top of the window;
+- a lightly tinted window background;
+- the SymPy code pane tinted, with a coloured left border;
+- section titles in the accent colour.
+
+The LaTeX preview keeps a white sheet with black text, and copied images are black
+on white. The system style (macOS) is kept.
 """
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication
+ACCENT = "#2a9d8f"        # teal
+ACCENT_DARK = "#1f6f66"   # titles
+TINT = "#eef6f4"          # window background
+CODE_BG = "#e3f1ee"
+CODE_FG = "#17403b"
 
-_COLORS = {
-    QPalette.ColorRole.Window: "#1f2329",
-    QPalette.ColorRole.WindowText: "#d7dce2",
-    QPalette.ColorRole.Base: "#15181d",
-    QPalette.ColorRole.AlternateBase: "#22262c",
-    QPalette.ColorRole.Text: "#e6e9ee",
-    QPalette.ColorRole.Button: "#2b3038",
-    QPalette.ColorRole.ButtonText: "#e6e9ee",
-    QPalette.ColorRole.BrightText: "#ffffff",
-    QPalette.ColorRole.Highlight: "#3a6ea5",
-    QPalette.ColorRole.HighlightedText: "#ffffff",
-    QPalette.ColorRole.ToolTipBase: "#2b3038",
-    QPalette.ColorRole.ToolTipText: "#e6e9ee",
-    QPalette.ColorRole.PlaceholderText: "#7d8590",
-    QPalette.ColorRole.Link: "#58a6ff",
-    QPalette.ColorRole.Light: "#3a404a",
-    QPalette.ColorRole.Midlight: "#30353d",
-    QPalette.ColorRole.Mid: "#262a31",
-    QPalette.ColorRole.Dark: "#121418",
-    QPalette.ColorRole.Shadow: "#000000",
-}
-_DISABLED = "#6b7280"
+# notes and verdicts (readable on a light background)
+NOTE_COLORS = {"error": "#b00020", "warning": "#a35a00", "info": "#5f6b6a"}
+VERDICT_COLORS = {"equal": "#2e7d32", "different": "#b00020", "undetermined": "#a35a00"}
 
 
-def apply_dark_theme(app: QApplication) -> None:
-    app.setStyle("Fusion")          # the same look on every system, and it follows the palette
-    pal = QPalette()
-    for role, color in _COLORS.items():
-        pal.setColor(role, QColor(color))
-    for role in (QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText,
-                 QPalette.ColorRole.WindowText):
-        pal.setColor(QPalette.ColorGroup.Disabled, role, QColor(_DISABLED))
-    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Button, QColor("#23272e"))
-    app.setPalette(pal)
+def window_stylesheet() -> str:
+    return (f"#central {{ background: {TINT}; }} QStatusBar {{ background: {TINT}; }}"
+            f"#band {{ background: {ACCENT}; }}"
+            f"QLabel[section=\"true\"] {{ color: {ACCENT_DARK}; font-weight: bold; }}"
+            f"#codeView {{ background: {CODE_BG}; color: {CODE_FG};"
+            f" border: none; border-left: 4px solid {ACCENT}; }}")
+
+
+def dialog_stylesheet() -> str:
+    return f"QDialog {{ background: {TINT}; }}"
+
+
+def title(text: str) -> str:
+    """Section title (HTML) in the accent colour."""
+    return f"<b style='color:{ACCENT_DARK}'>{text}</b>"
