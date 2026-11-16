@@ -56,7 +56,7 @@ Sur une équation, chaque opération s'applique **à chaque côté séparément*
 | Factor | `result = sp.factor(expr)` |
 | Expand | `result = sp.expand(expr)` |
 | Collect by ▾ `v` | `result = sp.collect(sp.expand(expr), v)` |
-| Collect by ▾ *all moments* | `result = sp.collect(sp.expand(expr), [n_A1, M_A1_A1, …])` |
+| Collect by ▾ *all moments* | `result = sp.collect(sp.expand(expr), [n_A1*M_A1_B1, …, n_A1, M_A1_A1, …])` : produits de moments présents d'abord (ajout pendant le développement : une équation fermée garde ainsi un seul coefficient par produit de moments) |
 | Compare | `equal = sp.cancel(lhs - rhs) == 0` |
 
 - **Collect by** développe d'abord, donc une forme factorisée est perdue. C'est normal et la remarque est affichée.

@@ -1,0 +1,18 @@
+# Conda environment for Sympy Tools (only if you do not reuse the latex-preview one)
+#   conda env create -f environment.yml
+#   conda activate sympy-tools
+#   pip install -e ../latex-preview
+#   pip install -e .
+# TeX Live / MacTeX is NOT installed here: the system one is used.
+name: sympy-tools
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pyside6>=6.6
+  - pymupdf>=1.24
+  - sympy>=1.12
+  - pytest
+  - pip
+  - pip:
+      - antlr4-python3-runtime==4.11.*   # SymPy's LaTeX parser (used by latex-preview)
