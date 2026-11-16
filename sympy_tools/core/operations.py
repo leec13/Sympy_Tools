@@ -1,4 +1,4 @@
-"""Operations: Simplify, Factor, Expand, Collect by, Compare.
+"""Operations: Simplify, Factor, Expand, Collect by, Compare, Isserlis, definitions.
 
 Each operation returns its result *and* the SymPy line(s) it really ran, shown in
 the interface for information. On an equation, every operation except Compare is
@@ -22,12 +22,16 @@ from dataclasses import dataclass, field
 import sympy as sp
 from sympy.core.function import AppliedUndef
 
-from .model import ToolModel
-from .reading import EquationReading, Reading, moment_symbols
+from . import closure
+from . import definitions as defs_mod
+from .model import KIND_MOMENT, ToolModel
+from .reading import EquationReading, Reading, moment_monomials, moment_symbols
 
 SIMPLIFY, FACTOR, EXPAND, COLLECT, COMPARE = "simplify", "factor", "expand", "collect", "compare"
+ISSERLIS, SUBSTITUTE, RECOGNIZE = "isserlis", "substitute", "recognize"
 OPERATIONS = {SIMPLIFY: "Simplify", FACTOR: "Factor", EXPAND: "Expand",
-              COLLECT: "Collect by", COMPARE: "Compare"}
+              COLLECT: "Collect by", COMPARE: "Compare", ISSERLIS: "Isserlis (order 3)",
+              SUBSTITUTE: "Substitute definitions", RECOGNIZE: "Recognize definitions"}
 ALL_MOMENTS = "*all moments*"
 
 EQUAL, DIFFERENT, UNDETERMINED = "equal", "different", "undetermined"
@@ -60,29 +64,6 @@ class OpResult:
 
 def _list(syms) -> str:
     return "[" + ", ".join(sp.sstr(s) for s in syms) + "]"
-
-
-def moment_monomials(exprs, moments: list[sp.Symbol]) -> list[sp.Expr]:
-    """Products of moments present (n_A1*M_A1_B1, …), highest degree first, then the moments.
-
-    Collecting by these keeps one coefficient per product of moments, which is how
-    closed moment equations are read. Falls back to the moments themselves when the
-    expression is not a polynomial in the moments (moment in a denominator, in exp…)."""
-    found: set = set()
-    for e in exprs:
-        try:
-            poly = sp.Poly(sp.expand(e), *moments)
-        except sp.PolynomialError:
-            return list(moments)
-        for mon in poly.monoms():
-            if any(mon):
-                found.add(sp.Mul(*[g ** k for g, k in zip(moments, mon)]))
-    def key(t):
-        powers = t.as_powers_dict()
-        exps = tuple(int(powers.get(m, 0)) for m in moments)
-        return (-sum(exps), tuple(-k for k in exps))   # degree, then exponents (deterministic)
-
-    return sorted(found, key=key)
 
 
 def _transform(op: str, syms) -> tuple:
@@ -126,6 +107,8 @@ def apply(op: str, reading: Reading | EquationReading, model: ToolModel,
             if not isinstance(reading, EquationReading):
                 raise ValueError("Compare needs an equation: switch to Equation mode.")
             return compare(reading.lhs.expr, reading.rhs.expr, reading, model)
+        if op in (ISSERLIS, SUBSTITUTE, RECOGNIZE):
+            return _model_operation(op, reading, model)
         syms = _collect_symbols(var, reading, model) if op == COLLECT else []
         fn, tpl = _transform(op, syms)
         if isinstance(reading, EquationReading):
@@ -141,6 +124,96 @@ def apply(op: str, reading: Reading | EquationReading, model: ToolModel,
     except Exception as exc:  # noqa: BLE001 - SymPy failures are reported
         res.ok, res.error = False, f"SymPy error ({type(exc).__name__}): {exc}"
     return res
+
+
+# ---------------------------------------------------------------- Isserlis, definitions
+def _rules_code(rules: dict) -> str:
+    return "rules = {" + ", ".join(f"{sp.sstr(k)}: {sp.sstr(v)}" for k, v in rules.items()) + "}"
+
+
+def _sides(reading) -> list[sp.Expr]:
+    if isinstance(reading, EquationReading):
+        return [reading.lhs.expr, reading.rhs.expr]
+    return [reading.expr]
+
+
+def _model_operation(op: str, reading, model: ToolModel) -> OpResult:
+    res = OpResult(op)
+    sides = _sides(reading)
+    equation = isinstance(reading, EquationReading)
+    try:
+        if op == ISSERLIS:
+            rules = closure.isserlis_rules(sides, model)
+            if not rules:
+                raise ValueError("There is no third-order moment (T_…) in the input.")
+            new = [e.xreplace(rules) for e in sides]
+            res.code = [_rules_code(rules)]
+            if any(closure.moments_of_order(sides, model, k) for k in range(4, 9)):
+                res.notes.append("Moments of order 4 or more are not closed.")
+            res.notes.append("The result is not expanded: use Collect by all moments to group it.")
+        elif op == SUBSTITUTE:
+            d = defs_mod.definitions(model)
+            rules = defs_mod.used_rules(sides, d)
+            if not rules:
+                names = ", ".join(sorted(d.names)) or "none in the model"
+                raise ValueError(f"No defined symbol in the input (definitions: {names}).")
+            new = [e.xreplace(d.full) for e in sides]
+            res.code = [_rules_code(rules)]
+        else:   # RECOGNIZE
+            d = defs_mod.definitions(model)
+            present = set().union(*[e.free_symbols for e in sides])
+            if not d.rules or not (present & set(d.symbols)):
+                shown = ", ".join(s.name for s in d.symbols[:6]) or "none"
+                raise ValueError(f"None of the symbols of the definitions ({shown}…) is in the input.")
+            outs = [defs_mod.recognize(e, d, model) for e in sides]
+            new = [o.expr for o in outs]
+            kept = [k for o in outs for k in o.kept]
+            if sum(o.found for o in outs) == 0:
+                res.notes.append("No definition recognized.")
+            if kept:
+                shown = ", ".join(dict.fromkeys(sp.sstr(k) for k in kept))
+                res.notes.append("Kept as it is (not a combination of "
+                                 + ", ".join(sorted(d.names)) + "): coefficient of " + shown + ".")
+            first = next(iter(d.rules.items()))
+            res.code = ["terms = sp.collect(sp.expand(expr), monomials, evaluate=False)"
+                        "   # one coefficient c per product of moments",
+                        f"# each c: sp.solve(sp.Poly(c - α·({sp.sstr(first[1])}) - …, "
+                        + ", ".join(s.name for s in d.symbols) + ").coeffs(), α)  ->  c = α·"
+                        + first[0].name + " + … + c0"]
+            if equation:
+                res.code[0] = ("terms = sp.collect(sp.expand(side), monomials, evaluate=False)"
+                               "   # lhs and rhs: one coefficient c per product of moments")
+            res.lhs, res.rhs = (new if equation else (None, None))
+            if not equation:
+                res.expr = new[0]
+            return res
+        if equation:
+            res.lhs, res.rhs = new
+            res.code.append("lhs, rhs = lhs.xreplace(rules), rhs.xreplace(rules)")
+        else:
+            res.expr = new[0]
+            res.code.append("result = expr.xreplace(rules)")
+    except ValueError as exc:
+        res.ok, res.error = False, str(exc)
+    except Exception as exc:  # noqa: BLE001 - SymPy failures are reported
+        res.ok, res.error = False, f"SymPy error ({type(exc).__name__}): {exc}"
+    return res
+
+
+def available(reading, model: ToolModel) -> dict[str, bool]:
+    """Which of Isserlis / Substitute / Recognize make sense for this input (for the buttons)."""
+    out = {ISSERLIS: False, SUBSTITUTE: False, RECOGNIZE: False}
+    if reading is None or not reading.ok:
+        return out
+    names = set(reading.symbols)
+    out[ISSERLIS] = any(i.kind == KIND_MOMENT and i.order == 3 for i in reading.symbols.values())
+    try:
+        d = defs_mod.definitions(model)
+    except ValueError:
+        return out
+    out[SUBSTITUTE] = bool(names & d.names)
+    out[RECOGNIZE] = bool(d.rules) and bool(names & {s.name for s in d.symbols})
+    return out
 
 
 # ---------------------------------------------------------------- compare

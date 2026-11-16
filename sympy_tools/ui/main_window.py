@@ -21,14 +21,15 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
 from ..core import jobs
 from ..core.jobs import EQUATION, EXPRESSION
 from ..core.model import ModelError, load_model
-from ..core.operations import (ALL_MOMENTS, COLLECT, COMPARE, DIFFERENT, EQUAL, EXPAND, FACTOR,
-                               OPERATIONS, SIMPLIFY)
+from ..core.operations import (ALL_MOMENTS, COLLECT, COMPARE, EXPAND, FACTOR,
+                               ISSERLIS, OPERATIONS, RECOGNIZE, SIMPLIFY, SUBSTITUTE, available)
 from ..core.output import overleaf, reading_latex
 from ..core.reading import ERROR, WARNING, categories, read_equation, read_expression, split_equation
 from ..settings import Settings
+from . import theme
 
-_COLORS = {"error": "#b00020", "warning": "#b26a00", "info": "#666666"}
-_VERDICT_COLORS = {EQUAL: "#2e7d32", DIFFERENT: "#b00020", "undetermined": "#b26a00"}
+_COLORS = theme.NOTE_COLORS
+_VERDICT_COLORS = theme.VERDICT_COLORS
 
 
 def _mono(size: int = 12) -> QFont:
@@ -117,13 +118,22 @@ class MainWindow(QMainWindow):
 
     # ================================================================ layout
     def _build(self) -> None:
-        central = QWidget()
+        central = QWidget(objectName="central")
         self.setCentralWidget(central)
-        root = QVBoxLayout(central)
+        self.setStyleSheet(theme.window_stylesheet())
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        band = QWidget(objectName="band")
+        band.setFixedHeight(5)
+        outer.addWidget(band)
+        body = QWidget()
+        outer.addWidget(body, 1)
+        root = QVBoxLayout(body)
 
         # --- model
         row = QHBoxLayout()
-        row.addWidget(QLabel("<b>Model:</b>"))
+        row.addWidget(QLabel(theme.title("Model:")))
         self.model_label = QLabel()
         self.model_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         row.addWidget(self.model_label, 1)
@@ -162,7 +172,7 @@ class MainWindow(QMainWindow):
 
         # --- reading
         row = QHBoxLayout()
-        lab = QLabel("<b>Read as:</b>")
+        lab = QLabel(theme.title("Read as:"))
         lab.setAlignment(Qt.AlignmentFlag.AlignTop)
         row.addWidget(lab)
         col = QVBoxLayout()
@@ -219,19 +229,41 @@ class MainWindow(QMainWindow):
         row.addStretch(1)
         root.addLayout(row)
 
+        # --- moments and definitions
+        row = QHBoxLayout()
+        more = {ISSERLIS: ("Ctrl+6", "Third-order moments T_… replaced by Isserlis / Wick: "
+                                     "<ab><c> + <ac><b> + <bc><a> - 2<a><b><c>"),
+                SUBSTITUTE: ("Ctrl+7", "r_A1… replaced by their formula ([definitions] of the model)"),
+                RECOGNIZE: ("Ctrl+8", "Formulas rewritten with r_A1…, coefficient by coefficient, "
+                                      "only where exact and unambiguous")}
+        row.addWidget(QLabel("Moments:"))
+        for op in (ISSERLIS, SUBSTITUTE, RECOGNIZE):
+            if op == SUBSTITUTE:
+                row.addSpacing(16)
+                row.addWidget(QLabel("Definitions:"))
+            key, tip = more[op]
+            b = QPushButton(OPERATIONS[op])
+            b.setShortcut(QKeySequence(key))
+            b.setToolTip(f"{tip}   ({QKeySequence(key).toString(QKeySequence.SequenceFormat.NativeText)})")
+            b.clicked.connect(lambda _=False, op=op: self.run(op))
+            self.op_buttons[op] = b
+            row.addWidget(b)
+        row.addStretch(1)
+        root.addLayout(row)
+
         # --- lower part: code, result, LaTeX
         lower = QWidget()
         lay = QVBoxLayout(lower)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.addWidget(QLabel("<b>SymPy code</b>"))
+        lay.addWidget(QLabel(theme.title("SymPy code")))
         self.code_view = QPlainTextEdit(readOnly=True)
         self.code_view.setFont(_mono(12))
-        self.code_view.setFixedHeight(self.code_view.fontMetrics().lineSpacing() * 2 + 14)
-        self.code_view.setStyleSheet("QPlainTextEdit { background: #f6f6f6; color: #333; }")
+        self.code_view.setFixedHeight(self.code_view.fontMetrics().lineSpacing() * 3 + 14)
+        self.code_view.setObjectName("codeView")
         lay.addWidget(self.code_view)
 
         row = QHBoxLayout()
-        self.result_title = QLabel("<b>Result</b>")
+        self.result_title = QLabel(theme.title("Result"))
         row.addWidget(self.result_title)
         self.verdict_label = QLabel()
         row.addWidget(self.verdict_label, 1)
@@ -515,6 +547,9 @@ class MainWindow(QMainWindow):
         self.op_buttons[COLLECT].setEnabled(ok and not busy and self.collect_combo.currentData() is not None)
         self.op_buttons[COMPARE].setToolTip(
             "Is lhs - rhs identically 0?" if self.mode == EQUATION else "Compare needs Equation mode")
+        useful = available(self._reading, self.model)
+        for op, can in useful.items():
+            self.op_buttons[op].setEnabled(ok and not busy and can)
         self.stop_button.setVisible(busy)
 
     # ================================================================ result
@@ -533,11 +568,11 @@ class MainWindow(QMainWindow):
 
     def _show(self, shown: _Shown) -> None:
         self._shown = shown
-        self.result_title.setText(f"<b>{html.escape(shown.title)}</b>")
+        self.result_title.setText(theme.title(html.escape(shown.title)))
         self.code_view.setPlainText(shown.code)
         self.result_view.setPlainText(shown.python)
         if shown.verdict_text:
-            color = _VERDICT_COLORS.get(shown.verdict, "#333")
+            color = _VERDICT_COLORS.get(shown.verdict, "#333333")
             self.verdict_label.setText(f"<b style='color:{color}'>{html.escape(shown.verdict_text)}</b>")
         else:
             self.verdict_label.setText("")

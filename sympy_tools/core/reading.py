@@ -386,3 +386,27 @@ def moment_symbols(symbols: dict[str, SymbolInfo], model: ToolModel) -> list[sp.
     ms = [i for i in symbols.values() if i.kind == KIND_MOMENT]
     ms.sort(key=lambda i: (i.order, [order[c] for c in i.codes]))
     return [model.symbol(i.name) for i in ms]
+
+
+def moment_monomials(exprs, moments: list[sp.Symbol]) -> list[sp.Expr]:
+    """Products of moments present (n_A1*M_A1_B1, …), highest degree first, then the moments.
+
+    Collecting by these keeps one coefficient per product of moments, which is how
+    closed moment equations are read. Falls back to the moments themselves when the
+    expression is not a polynomial in the moments (moment in a denominator, in exp…)."""
+    found: set = set()
+    for e in exprs:
+        try:
+            poly = sp.Poly(sp.expand(e), *moments)
+        except sp.PolynomialError:
+            return list(moments)
+        for mon in poly.monoms():
+            if any(mon):
+                found.add(sp.Mul(*[g ** k for g, k in zip(moments, mon)]))
+
+    def key(t):
+        powers = t.as_powers_dict()
+        exps = tuple(int(powers.get(m, 0)) for m in moments)
+        return (-sum(exps), tuple(-k for k in exps))   # degree, then exponents (deterministic)
+
+    return sorted(found, key=key)

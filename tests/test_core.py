@@ -307,3 +307,98 @@ def test_collect_all_moments_by_products_of_moments():
     assert code.startswith("result = sp.collect(sp.expand(expr), [n_A1**2*n_B1, ")
     assert "M_A1_B1*n_A1" in code and code.endswith("M_A1_B1, M_B1_B1])")
     assert sp.expand(r.expr - read(rhs).expr) == 0
+
+
+# ------------------------------------------------------------------ v0.2 (VALIDATED 16-26, 16/11/2026)
+from sympy_tools.core.operations import ISSERLIS, RECOGNIZE, SUBSTITUTE, available  # noqa: E402
+
+
+@pytest.mark.parametrize("num, text, expected", [
+    (16, "T_A1_A1_A1", "3*M_A1_A1*n_A1 - 2*n_A1**3"),
+    (17, "T_A1_A1_A2", "M_A1_A1*n_A2 + 2*M_A1_A2*n_A1 - 2*n_A1**2*n_A2"),
+    (18, "T_A1_A2_B1", "M_A1_A2*n_B1 + M_A1_B1*n_A2 + M_A2_B1*n_A1 - 2*n_A1*n_A2*n_B1"),
+])
+def test_validated_16_18_isserlis(num, text, expected):
+    r = op(ISSERLIS, text)
+    assert r.text == expected
+    assert r.code == [f"rules = {{{text}: {expected}}}", "result = expr.xreplace(rules)"]
+
+
+EXACT_A1A1 = ("m*(-2*M_A1_A1 + 2*M_A1_B1 + n_A1 + n_B1) + rmaxA*(2*M_A1_A1 + n_A1)"
+              " + s*(x1 - thA)**2*(n_A1 - 2*M_A1_A1)"
+              " + (M_A1_A1 + M_A1_A2 - 2*T_A1_A1_A1 - 2*T_A1_A1_A2)/KA")
+
+
+def test_validated_19_isserlis_equals_moment_closure_level_2():
+    closed = op(ISSERLIS, EXACT_A1A1)
+    mc = dict(_closure_lines())["dM_A1_A1/dt"]
+    assert cmp(closed.text, mc).verdict == EQUAL
+
+
+def test_isserlis_leaves_fourth_order_and_equation_sides():
+    r = op(ISSERLIS, "T_A1_A1_A1 + Q_A1_A1_A1_A1")
+    assert "Q_A1_A1_A1_A1" in r.text and "order 4 or more are not closed" in " ".join(r.notes)
+    e = apply(ISSERLIS, read_equation("dT_A1_A1_A1_dt", "T_A1_A1_A1*m", M), M)
+    assert e.text == "dT_A1_A1_A1_dt = m*(3*M_A1_A1*n_A1 - 2*n_A1**3)"
+    assert e.code[-1] == "lhs, rhs = lhs.xreplace(rules), rhs.xreplace(rules)"
+
+
+def test_validated_20_substitute_definitions():
+    r = op(SUBSTITUTE, "n_A1*(r_A1 - (n_A1 + n_A2)/KA) - m*(n_A1 - n_B1)")
+    assert r.text == "-m*(n_A1 - n_B1) + n_A1*(rmaxA - s*(-thA + x1)**2 - (n_A1 + n_A2)/KA)"
+    assert r.code == ["rules = {r_A1: rmaxA - s*(-thA + x1)**2}", "result = expr.xreplace(rules)"]
+
+
+def test_validated_21_buttons_only_when_useful():
+    assert available(read("n_A1*m"), M) == {ISSERLIS: False, SUBSTITUTE: False, RECOGNIZE: False}
+    assert available(read("T_A1_A1_A2 + r_A1"), M) == {ISSERLIS: True, SUBSTITUTE: True,
+                                                        RECOGNIZE: False}
+    assert available(read("rmaxA*n_A1"), M)[RECOGNIZE]
+    for name, text in ((ISSERLIS, "n_A1"), (SUBSTITUTE, "n_A1"), (RECOGNIZE, "n_A1*m")):
+        assert not apply(name, read(text), M).ok
+
+
+def recognize_line(key):
+    rhs = dict(_closure_lines())[key]
+    return op(RECOGNIZE, rhs), rhs
+
+
+def test_validated_22_recognize_dn_A1():
+    r, _ = recognize_line("dn_A1/dt")
+    assert r.text == "m*n_B1 + n_A1*(-m + r_A1) - M_A1_A1/KA - M_A1_A2/KA"
+    assert not r.notes
+
+
+def test_validated_23_recognize_dM_A1_A1_keeps_birth_plus_death():
+    r, _ = recognize_line("dM_A1_A1/dt")
+    assert "M_A1_A1*(-2*m + 2*r_A1 + 1/KA)" in r.text
+    assert "n_A1*(m + rmaxA + s*(-thA + x1)**2)" in r.text
+    assert r.notes == ["Kept as it is (not a combination of r_A1, r_A2, r_B1, r_B2): "
+                       "coefficient of n_A1."]
+
+
+def test_validated_24_recognize_two_r_in_one_coefficient():
+    r, _ = recognize_line("dM_A1_B1/dt")
+    assert "M_A1_B1*(-2*m + r_A1 + r_B1)" in r.text
+
+
+def test_validated_25_recognize_rmax_split_between_two_r():
+    assert op(RECOGNIZE, "2*rmaxA - s*(x1 - thA)**2 - s*(x2 - thA)**2").text == "r_A1 + r_A2"
+
+
+def test_validated_26_recognize_then_substitute_gives_back_the_input():
+    for key, rhs in _closure_lines():
+        rec = op(RECOGNIZE, rhs)
+        back = op(SUBSTITUTE, rec.text) if available(read(rec.text), M)[SUBSTITUTE] else rec
+        assert cmp(back.text, rhs).verdict == EQUAL, key
+
+
+def test_definitions_errors():
+    from sympy_tools.core.definitions import definitions
+    bad = load_model(DEFAULT_MODEL.replace("r_A1 = rmaxA - s*(x1 - thA)**2", "r_A1 = r_A2 + 1")
+                     .replace("r_A2 = rmaxA - s*(x2 - thA)**2", "r_A2 = r_A1 * 2"))
+    with pytest.raises(ValueError, match="Circular definitions: r_A1, r_A2"):
+        definitions(bad)
+    bad2 = load_model(DEFAULT_MODEL.replace("r_A1 = rmaxA - s*(x1 - thA)**2", "r_A1 = M_A1_MA1"))
+    r = apply(SUBSTITUTE, read_expression("r_A1", bad2), bad2)
+    assert not r.ok and "Definition r_A1 = M_A1_MA1" in r.error

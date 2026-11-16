@@ -13,6 +13,8 @@ class ModelDialog(QDialog):
     def __init__(self, text: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Edit model")
+        from .theme import dialog_stylesheet
+        self.setStyleSheet(dialog_stylesheet())
         self.resize(760, 640)
         lay = QVBoxLayout(self)
         intro = QLabel(

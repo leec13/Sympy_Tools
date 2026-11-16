@@ -78,3 +78,25 @@ def test_compare(win):
     w.run("compare")
     assert _wait(app, lambda: w._shown.is_result)
     assert w._shown.verdict == "equal"
+
+
+def test_v02_buttons_and_recognize(win):
+    w, app = win
+    w.rb_expr.setChecked(True)
+    w.expr_edit.setPlainText("2*rmaxA - s*(x1 - thA)**2 - s*(x2 - thA)**2")
+    w._read_input()
+    assert w.op_buttons["recognize"].isEnabled()
+    assert not w.op_buttons["isserlis"].isEnabled() and not w.op_buttons["substitute"].isEnabled()
+    w._shown.is_result = False
+    w.run("recognize")
+    assert _wait(app, lambda: w._shown.is_result)
+    assert w._shown.python == "r_A1 + r_A2"
+    w.use_as_input()
+    assert w.op_buttons["substitute"].isEnabled()
+
+
+def test_visual_identity(win):
+    w, app = win
+    assert w.centralWidget().objectName() == "central"
+    assert w.findChild(QtWidgets.QWidget, "band").height() == 5
+    assert w.code_view.objectName() == "codeView"
