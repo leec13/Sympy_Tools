@@ -73,15 +73,33 @@ On an equation, each operation is applied to each side. The **SymPy code** pane 
 | Expand | `sp.expand(expr)` | ⌘3 |
 | Collect by ▾ | `sp.collect(sp.expand(expr), v)`; the list contains every symbol read, grouped, plus *all moments* | ⌘4 |
 | Compare | `sp.cancel(lhs - rhs) == 0`, or `sp.simplify` with exp, sqrt… | ⌘5 |
+| Isserlis (order 3) | `expr.xreplace({T_A1_A1_A2: M_A1_A1*n_A2 + 2*M_A1_A2*n_A1 - 2*n_A1**2*n_A2, …})` | ⌘6 |
+| Substitute definitions | `expr.xreplace({r_A1: rmaxA - s*(x1 - thA)**2, …})` | ⌘7 |
+| Recognize definitions | the formulas become `r_A1`…, coefficient by coefficient (see below) | ⌘8 |
+
+The Isserlis and definitions buttons are greyed out when they have nothing to do (no `T_…`, no `r_…`, no `rmaxA`…).
 
 - **Collect by** expands first, so a factored form is lost. With *all moments*, it collects by every product of moments present (`n_A1*M_A1_B1`, …, then `n_A1`, `M_A1_A1`…). Each product of moments therefore gets a single coefficient, which is how closed moment equations are read.
 - **Compare** gives one of three verdicts:
   - **Equal (proved)**.
   - **Different**, with `lhs − rhs` grouped by moment. For polynomials and fractions in moments and parameters, `cancel` is a proof. Otherwise a non-zero value at a test point proves the difference.
   - **Undetermined**: SymPy cannot conclude. lhs − rhs is evaluated at random points, which is not a proof.
+- **Isserlis (order 3)**: ⟨abc⟩ ≈ ⟨ab⟩⟨c⟩ + ⟨ac⟩⟨b⟩ + ⟨bc⟩⟨a⟩ − 2⟨a⟩⟨b⟩⟨c⟩ for every `T_…`.
+  - This is exactly the level-2 closure of `moment_closure.py`, which sets third-order cumulants to zero. A test checks it on d⟨(N_A¹)²⟩/dt.
+  - Moments of order 4 or more are not touched.
+  - The result is not expanded: use Collect by *all moments* afterwards.
+- **Recognize definitions**: the expression is grouped by products of moments. Each coefficient is rewritten as α·r_A1 + β·r_A2 + … + rest **only if** the rest no longer contains any symbol of the formulas (rmaxA, s, x1, thA…).
+  - Such a decomposition is unique, so there is no ambiguity.
+  - Other coefficients are kept as they are and listed. For example, the birth + death coefficient rmaxA + s(x1−θA)² is not an r_A1.
+  - The result is checked: substituting the definitions back gives the input exactly.
+  - `docs/v0.2_cas_22_25.pdf` shows four cases before and after.
 - **↑ Use as input**: the result becomes the input, to chain operations.
 
 Note: Factor and Simplify put everything over a common denominator as soon as there is a `1/KA`. This is SymPy's behaviour.
+
+## Look
+
+The window always has a dark theme, to tell it from latex-preview at a glance. The LaTeX preview keeps a white sheet with black text, and copied images are black on white.
 
 ## Output and copy
 
@@ -104,6 +122,8 @@ Note: Factor and Simplify put everything over a common denominator as soon as th
   positive = rmaxA, rmaxB, s, KA, KB, m
   real = x1, x2, thA, thB
   ```
+  The `[definitions]` section (`r_A1 = rmaxA - s*(x1 - thA)**2` …) is used by Substitute and Recognize definitions. A definition may use another one; circular definitions are an error.
+
   Assumptions change what Simplify and Compare can prove. For example `sqrt(KA**2)` = `KA` because KA > 0, but `sqrt(x1**2)` = `Abs(x1)` because x1 is only real.
 
 ## Tests
@@ -112,7 +132,7 @@ Note: Factor and Simplify put everything over a common denominator as soon as th
 python -m pytest
 ```
 
-The tests contain the examples of the v0.1 specification (`docs/spec_v0.1.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
+The tests contain the examples of the specifications (`docs/spec_v0.1.md`, `docs/spec_v0.2.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
 
 ## Structure
 
@@ -121,7 +141,9 @@ sympy_tools/
   core/            # no GUI, usable from a notebook
     model.py       # .ini model (FR/EN keys), assumptions, one SymPy symbol per name
     reading.py     # Python-like text -> checked expression, notes, symbol list
-    operations.py  # Simplify, Factor, Expand, Collect by, Compare (+ SymPy code shown)
+    operations.py  # all operations (+ SymPy code shown), which buttons are useful
+    closure.py     # Isserlis / Wick on third-order moments
+    definitions.py # [definitions]: substitute, and recognize (exact, unique)
     output.py      # Python text, LaTeX with the model's names, Overleaf export
     jobs.py        # string-in / string-out entry point, run in a separate process
   ui/              # PySide6 interface

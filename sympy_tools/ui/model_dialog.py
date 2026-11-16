@@ -51,11 +51,11 @@ class ModelDialog(QDialog):
         try:
             m = load_model(self.text)
         except ModelError as exc:
-            self.info.setStyleSheet("color:#b00020;")
+            self.info.setStyleSheet("color:#ff7b72;")
             self.info.setText(str(exc))
             return False
         n_hyp = len(m.assumptions)
-        self.info.setStyleSheet("color:#2e7d32;")
+        self.info.setStyleSheet("color:#7ee787;")
         self.info.setText(f"Valid model: {m.summary()}, {len(m.lp.definitions)} definitions, "
                           f"assumptions on {n_hyp} symbols.")
         return True
