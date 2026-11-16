@@ -59,7 +59,30 @@ class OpResult:
 
 
 def _list(syms) -> str:
-    return "[" + ", ".join(s.name for s in syms) + "]"
+    return "[" + ", ".join(sp.sstr(s) for s in syms) + "]"
+
+
+def moment_monomials(exprs, moments: list[sp.Symbol]) -> list[sp.Expr]:
+    """Products of moments present (n_A1*M_A1_B1, …), highest degree first, then the moments.
+
+    Collecting by these keeps one coefficient per product of moments, which is how
+    closed moment equations are read. Falls back to the moments themselves when the
+    expression is not a polynomial in the moments (moment in a denominator, in exp…)."""
+    found: set = set()
+    for e in exprs:
+        try:
+            poly = sp.Poly(sp.expand(e), *moments)
+        except sp.PolynomialError:
+            return list(moments)
+        for mon in poly.monoms():
+            if any(mon):
+                found.add(sp.Mul(*[g ** k for g, k in zip(moments, mon)]))
+    def key(t):
+        powers = t.as_powers_dict()
+        exps = tuple(int(powers.get(m, 0)) for m in moments)
+        return (-sum(exps), tuple(-k for k in exps))   # degree, then exponents (deterministic)
+
+    return sorted(found, key=key)
 
 
 def _transform(op: str, syms) -> tuple:
@@ -71,20 +94,22 @@ def _transform(op: str, syms) -> tuple:
     if op == EXPAND:
         return sp.expand, "sp.expand({x})"
     if op == COLLECT:
-        arg = syms[0].name if len(syms) == 1 else _list(syms)
+        arg = sp.sstr(syms[0]) if len(syms) == 1 else _list(syms)
         target = syms[0] if len(syms) == 1 else list(syms)
         return (lambda e: sp.collect(sp.expand(e), target)), "sp.collect(sp.expand({x}), " + arg + ")"
     raise ValueError(f"unknown operation: {op}")
 
 
-def _collect_symbols(var: str | None, reading, model: ToolModel) -> list[sp.Symbol]:
+def _collect_symbols(var: str | None, reading, model: ToolModel) -> list[sp.Expr]:
     if not var:
         raise ValueError("Choose a variable for Collect by.")
     if var == ALL_MOMENTS:
         syms = moment_symbols(reading.symbols, model)
         if not syms:
             raise ValueError("There is no moment to collect by.")
-        return syms
+        exprs = ([reading.lhs.expr, reading.rhs.expr] if isinstance(reading, EquationReading)
+                 else [reading.expr])
+        return moment_monomials(exprs, syms)
     if var not in reading.symbols:
         raise ValueError(f"'{var}' does not appear in the input.")
     return [model.symbol(var)]

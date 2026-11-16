@@ -294,3 +294,16 @@ def test_job_strings_in_strings_out():
     assert "dmath*" in out["overleaf"]
     bad = run_operation("", EXPRESSION, text="M_A1_MA1", op=EXPAND)
     assert not bad["ok"] and "correct them first" in bad["error"]
+
+
+def test_collect_all_moments_by_products_of_moments():
+    """Closed equations: one coefficient per product of moments (n_A1*M_A1_B1…)."""
+    lines = dict(_closure_lines())
+    rhs = lines["dM_A1_B1/dt"]
+    r = op(COLLECT, rhs, ALL_MOMENTS)
+    assert "M_A1_B1*(-2*m + rmaxA + rmaxB" in r.text
+    assert "- 2*M_A1_B1*n_B1/KB" in r.text            # a product of moments kept as one term
+    code = r.code[0]
+    assert code.startswith("result = sp.collect(sp.expand(expr), [n_A1**2*n_B1, ")
+    assert "M_A1_B1*n_A1" in code and code.endswith("M_A1_B1, M_B1_B1])")
+    assert sp.expand(r.expr - read(rhs).expr) == 0

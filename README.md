@@ -74,7 +74,7 @@ On an equation, each operation is applied to each side. The **SymPy code** pane 
 | Collect by ▾ | `sp.collect(sp.expand(expr), v)`; the list contains every symbol read, grouped, plus *all moments* | ⌘4 |
 | Compare | `sp.cancel(lhs - rhs) == 0`, or `sp.simplify` with exp, sqrt… | ⌘5 |
 
-- **Collect by** expands first, so a factored form is lost.
+- **Collect by** expands first, so a factored form is lost. With *all moments*, it collects by every product of moments present (`n_A1*M_A1_B1`, …, then `n_A1`, `M_A1_A1`…). Each product of moments therefore gets a single coefficient, which is how closed moment equations are read.
 - **Compare** gives one of three verdicts:
   - **Equal (proved)**.
   - **Different**, with `lhs − rhs` grouped by moment. For polynomials and fractions in moments and parameters, `cancel` is a proof. Otherwise a non-zero value at a test point proves the difference.

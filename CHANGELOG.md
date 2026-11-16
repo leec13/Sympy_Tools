@@ -6,7 +6,8 @@ First version, specified with the user before development (`docs/spec_v0.1.md`).
 - Checked reading through the model: invalid moment names are errors, codes are reordered,
   symbols outside the model are accepted and listed, non-numeric exponents give a warning
   (`a** + b`), `^` is read as `**`, `dX/dt` as `dX_dt`. SymPy's own names are never used.
-- Operations: Simplify, Factor, Expand, Collect by (one symbol or all moments), Compare
+- Operations: Simplify, Factor, Expand, Collect by (one symbol, or all moments: one
+  coefficient per product of moments), Compare
   (equal / different / undetermined, with lhs − rhs grouped by moment). The SymPy code
   that runs is shown.
 - Output: Python text, LaTeX code, LaTeX rendered with TeX Live (breqn); copy as Python,
