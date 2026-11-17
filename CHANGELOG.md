@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.0 — 2026-11-17
+Specified with the user before development (`docs/spec_v0.5.md`, cases 46 to 53).
+- Default model: omega_A1… = s*(x - th)**2 (death rate by selection, same LaTeX as
+  latex-preview), r_A1 = rmaxA - omega_A1, deaths written with omega. Symmetries swap
+  the omegas (derived from the definitions). Older saved defaults (v0.1-v0.4) are updated.
+- Compare always substitutes the definitions first ("after substituting definitions").
+- Recognize definitions: substitutes everything, then the shortest exact writing per
+  coefficient; rmaxA may stay with its own coefficient, never added nor changed. With
+  overlapping definitions (r = rmax - omega) birth + death reads rmaxA + omega_A1; with
+  the r only, results are those of v0.2.
+- Substitute definitions: everything at once, down to the base parameters (unchanged).
+
 ## v0.4.1 — 2026-11-17
 - Tests are isolated from the user's preferences (`SYMPY_TOOLS_SETTINGS`, set in
   `tests/conftest.py`). On macOS they used to read, and write, the real preferences, so

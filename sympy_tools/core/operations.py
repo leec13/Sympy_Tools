@@ -353,6 +353,24 @@ def _numeric_check(d: sp.Expr, lhs: sp.Expr, rhs: sp.Expr) -> tuple[str, str]:
 
 
 def compare(lhs: sp.Expr, rhs: sp.Expr, reading, model: ToolModel) -> OpResult:
+    """Compare, after substituting the definitions (r_A1, omega_A1…) on both sides."""
+    try:
+        d = defs_mod.definitions(model)
+        rules = defs_mod.used_rules([lhs, rhs], d)
+    except ValueError:
+        rules = {}
+    if not rules:
+        return _compare(lhs, rhs, reading, model)
+    res = _compare(lhs.xreplace(d.full), rhs.xreplace(d.full), reading, model)
+    res.code = [_rules_code(rules),
+                "lhs, rhs = lhs.xreplace(rules), rhs.xreplace(rules)   # definitions first"] + res.code
+    res.verdict_text = res.verdict_text.replace("(proved", "(proved, after substituting definitions", 1)
+    if "after substituting" not in res.verdict_text:
+        res.verdict_text += " (after substituting definitions)"
+    return res
+
+
+def _compare(lhs: sp.Expr, rhs: sp.Expr, reading, model: ToolModel) -> OpResult:
     res = OpResult(COMPARE)
     if lhs.atoms(sp.Float) or rhs.atoms(sp.Float):
         lhs, rhs = sp.nsimplify(lhs, rational=True), sp.nsimplify(rhs, rational=True)
