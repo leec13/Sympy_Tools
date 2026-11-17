@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.4.0 — 2026-11-17
+Specified with the user before development (`docs/spec_v0.4.md`, cases 36 to 45).
+- The model declares the stochastic process, `[evenements]` (one line per event: rate | jump),
+  and its symmetries, `[symetries]` (swaps of codes and parameters). The default model has
+  the 12 events of moment_closure.py and the phenotypes / niches symmetries; combinations
+  are added; r_A1… follow from their definitions. Rates and jumps are checked on loading.
+- **Events…**: compiled table of every event and its image by each symmetry, ✓ / ✗.
+- **Generate d/dt**: equation of a moment event by event, E(w·Δf, event), as the input;
+  LaTeX labels each term with its event.
+- **Take moments**: E(…) -> moments, grouped by event.
+- **Symmetry ▾ Apply**: swaps moments, variables, parameters, r_… and event names;
+  says when an equation is invariant; warns when the symmetry does not hold for the events.
+- Checked: Generate -> Take moments -> Isserlis = moment_closure.py level 2, for its 14 equations.
+
 ## v0.3.0 — 2026-11-17
 Specified with the user before development (`docs/spec_v0.3.md`, cases 27 to 35).
 - **Chained operations**: each operation applies to the result shown, not to the input.

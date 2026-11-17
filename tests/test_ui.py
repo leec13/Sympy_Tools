@@ -203,3 +203,34 @@ def test_validated_34_35_use_as_input_and_mode_change(win):
     _chain_27(w, app)
     w.rb_eq.setChecked(True)                                       # 35
     assert w._chain == [] and w._current is None
+
+
+# ------------------------------------------------------------------ v0.4: process, symmetries
+def test_v04_generate_take_moments_isserlis_symmetry(win):
+    w, app = win
+    w.moment_field.setText("M_A1_A1")
+    w.generate()
+    assert w.mode == "equation" and w.lhs_edit.toPlainText() == "dM_A1_A1_dt"
+    assert w.rhs_edit.toPlainText().startswith("E(NA1*rmaxA*(2*NA1 + 1), naissance_A1)")
+    assert w.op_buttons["moments"].isEnabled() and not w.op_buttons["isserlis"].isEnabled()
+    assert [w.symmetry_combo.itemData(i) for i in range(w.symmetry_combo.count())] == \
+        ["phenotypes", "niches", "niches + phenotypes"]
+    _run(w, app, "moments")
+    assert "T_A1_A1_A1" in w._shown.python and w.op_buttons["isserlis"].isEnabled()
+    _run(w, app, "isserlis")
+    w.symmetry_combo.setCurrentIndex(w.symmetry_combo.findData("phenotypes"))
+    _run(w, app, "symmetry")
+    assert w._current["lhs"] == "dM_A2_A2_dt"
+    assert "Take moments → Isserlis (order 3) → Symmetry phenotypes" in w.result_title.text()
+
+
+def test_v04_events_dialog_and_generate_error(win, monkeypatch):
+    w, app = win
+    from sympy_tools.ui.events_dialog import EventsDialog
+    d = EventsDialog(w.model, w)
+    assert d.tex.count(r"\checkmark") == 36
+    shown = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    w.moment_field.setText("M_A1_XX")
+    w.generate()
+    assert shown and "unknown code" in shown[0]

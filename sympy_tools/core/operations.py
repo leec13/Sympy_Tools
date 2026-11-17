@@ -25,14 +25,17 @@ from sympy.core.function import AppliedUndef
 
 from . import closure
 from . import definitions as defs_mod
-from .model import KIND_MOMENT, ToolModel
+from . import process as proc_mod
+from .model import KIND_MOMENT, ModelError, ToolModel
 from .reading import EquationReading, Reading, moment_monomials, moment_symbols
 
 SIMPLIFY, FACTOR, EXPAND, COLLECT, COMPARE = "simplify", "factor", "expand", "collect", "compare"
 ISSERLIS, SUBSTITUTE, RECOGNIZE = "isserlis", "substitute", "recognize"
+TAKE_MOMENTS, SYMMETRY = "moments", "symmetry"
 OPERATIONS = {SIMPLIFY: "Simplify", FACTOR: "Factor", EXPAND: "Expand",
               COLLECT: "Collect by", COMPARE: "Compare", ISSERLIS: "Isserlis (order 3)",
-              SUBSTITUTE: "Substitute definitions", RECOGNIZE: "Recognize definitions"}
+              SUBSTITUTE: "Substitute definitions", RECOGNIZE: "Recognize definitions",
+              TAKE_MOMENTS: "Take moments", SYMMETRY: "Symmetry"}
 ALL_MOMENTS = "*all moments*"
 
 EQUAL, DIFFERENT, UNDETERMINED = "equal", "different", "undetermined"
@@ -110,6 +113,10 @@ def apply(op: str, reading: Reading | EquationReading, model: ToolModel,
             return compare(reading.lhs.expr, reading.rhs.expr, reading, model)
         if op in (ISSERLIS, SUBSTITUTE, RECOGNIZE):
             return _model_operation(op, reading, model)
+        if op == TAKE_MOMENTS:
+            return _take_moments(reading, model)
+        if op == SYMMETRY:
+            return _symmetry(reading, model, var)
         syms = _collect_symbols(var, reading, model) if op == COLLECT else []
         fn, tpl = _transform(op, syms)
         if isinstance(reading, EquationReading):
@@ -217,11 +224,91 @@ def _model_operation(op: str, reading, model: ToolModel) -> OpResult:
     return res
 
 
+def _finish(res: OpResult, new: list, equation: bool) -> OpResult:
+    if equation:
+        res.lhs, res.rhs = new
+        res.code.append("lhs, rhs = lhs.xreplace(rules), rhs.xreplace(rules)")
+    else:
+        res.expr = new[0]
+        res.code.append("result = expr.xreplace(rules)")
+    return res
+
+
+def _take_moments(reading, model: ToolModel) -> OpResult:
+    res = OpResult(TAKE_MOMENTS)
+    sides = _sides(reading)
+    equation = isinstance(reading, EquationReading)
+    try:
+        values, monos = {}, {}
+        for e in sides:
+            v, mo = proc_mod.moments_rules(e, model)
+            values.update(v)
+            monos.update(mo)
+        if not values:
+            raise ValueError("There is no E(…) in the input.")
+        new = [e.xreplace(values) for e in sides]
+        ordered = sorted(monos.items(), key=lambda kv: (sp.Poly(kv[0]).total_degree(), sp.default_sort_key(kv[0])))
+        res.code = ["rules = {" + ", ".join(f"{sp.sstr(k)}: {v.name}" for k, v in ordered) + "}"
+                    "   # inside each E(…), expanded, every product of N becomes its moment",
+                    ("lhs, rhs = [s.replace(E, lambda body, *event: sp.expand(body).xreplace(rules)) "
+                     "for s in (lhs, rhs)]") if equation else
+                    "result = expr.replace(E, lambda body, *event: sp.expand(body).xreplace(rules))"]
+        stray = sorted({n for e in sides for n in proc_mod.state_symbols_outside_e(e, model)})
+        if stray:
+            res.notes.append(f"{', '.join(stray)} outside E(…): left as is.")
+        if equation:
+            res.lhs, res.rhs = new
+        else:
+            res.expr = new[0]
+    except ValueError as exc:
+        res.ok, res.error = False, str(exc)
+    return res
+
+
+def _symmetry(reading, model: ToolModel, name: str | None) -> OpResult:
+    res = OpResult(SYMMETRY)
+    sides = _sides(reading)
+    equation = isinstance(reading, EquationReading)
+    try:
+        proc = proc_mod.process(model)
+        if not proc.symmetries:
+            raise ValueError("The model declares no symmetry ([symetries] section).")
+        if not name:
+            raise ValueError("Choose a symmetry.")
+        sym = proc.symmetry(name)
+        present = set().union(*[e.free_symbols for e in sides])
+        rules = {}
+        for s in sorted(present, key=lambda x: x.name):
+            img = proc_mod.symbol_map(sym, s.name, model)
+            if img != s.name:
+                rules[s] = model.symbol(img)
+        new = [e.xreplace(rules) for e in sides]
+        res.code = [_rules_code(rules) if rules else "rules = {}"]
+        if not sym.checked:
+            res.notes.append("No events in the model: this symmetry cannot be checked.")
+        elif sym.failures:
+            res.notes.append(f"⚠ {name} is not a symmetry of the events ({len(sym.failures)} events ✗: "
+                             f"{', '.join(sym.failures)}). The result may not be the equation of the "
+                             "image moment.")
+        if all(sp.expand(a - b) == 0 for a, b in zip(new, sides)):
+            res.notes.append(f"Invariant under {name}: the equation does not change.")
+        _finish(res, new, equation)
+    except (ValueError, ModelError) as exc:
+        res.ok, res.error = False, str(exc)
+    return res
+
+
 def available(reading, model: ToolModel) -> dict[str, bool]:
     """Which of Isserlis / Substitute / Recognize make sense for this input (for the buttons)."""
-    out = {ISSERLIS: False, SUBSTITUTE: False, RECOGNIZE: False}
+    out = {ISSERLIS: False, SUBSTITUTE: False, RECOGNIZE: False, TAKE_MOMENTS: False,
+           SYMMETRY: False}
     if reading is None or not reading.ok:
         return out
+    out[TAKE_MOMENTS] = any(e.atoms(proc_mod.E) for e in _sides(reading))
+    try:
+        out[SYMMETRY] = bool(proc_mod.process(model).symmetries)
+    except ModelError:
+        pass
     names = set(reading.symbols)
     out[ISSERLIS] = any(i.kind == KIND_MOMENT and i.order == 3 for i in reading.symbols.values())
     try:

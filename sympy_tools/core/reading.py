@@ -29,8 +29,9 @@ from dataclasses import dataclass, field
 import sympy as sp
 from sympy.parsing.sympy_parser import parse_expr, standard_transformations
 
-from .model import (KIND_DERIVATIVE, KIND_FUNCTION, KIND_MOMENT, KIND_PARAMETER, KIND_STATE,
-                    KIND_UNKNOWN, SymbolInfo, ToolModel)
+from .model import (KIND_DERIVATIVE, KIND_EVENT, KIND_FUNCTION, KIND_MOMENT, KIND_PARAMETER,
+                    KIND_STATE, KIND_UNKNOWN, SymbolInfo, ToolModel)
+from .process import E
 
 ERROR, WARNING, INFO = "error", "warning", "info"
 
@@ -140,7 +141,7 @@ def resolve_name(name: str, model: ToolModel) -> _Resolved:
     """Name as written -> canonical name and kind, with notes or an error."""
     r = _Resolved()
     info = model.classify(name)
-    if info.kind in (KIND_PARAMETER, KIND_STATE, KIND_FUNCTION):
+    if info.kind in (KIND_PARAMETER, KIND_STATE, KIND_FUNCTION, KIND_EVENT):
         r.canonical, r.info = name, info
         return r
 
@@ -286,6 +287,9 @@ def read_expression(text: str, model: ToolModel) -> Reading:
         if key in seen:
             continue
         seen.add(key)
+        if name == "E" and called:
+            local[name] = E         # expectation <…>, optionally E(body, event)
+            continue
         if name in FUNCTIONS:
             if not called:
                 errors.append(f"'{name}' is a function: write {name}(…)")
@@ -330,6 +334,10 @@ def read_expression(text: str, model: ToolModel) -> Reading:
     if expr.has(sp.zoo, sp.nan, sp.oo, -sp.oo):
         r.notes.append(Note(ERROR, "division by zero (or infinite value)"))
         return r
+    e_errors = _check_expectations(expr, model)
+    if e_errors:
+        r.notes += [Note(ERROR, e) for e in e_errors]
+        return r
     for p in sorted(expr.atoms(sp.Pow), key=sp.default_sort_key):
         if not p.exp.is_number:
             r.notes.append(Note(WARNING, f"non-numeric exponent: {sp.sstr(p)}  "
@@ -339,6 +347,26 @@ def read_expression(text: str, model: ToolModel) -> Reading:
                                   "(Compare turns them into exact fractions)"))
     r.expr = expr
     return r
+
+
+def _check_expectations(expr: sp.Expr, model: ToolModel) -> list[str]:
+    """E(body[, event]): the event must be an event of the model, events only appear there,
+    and the body uses the variables NA1…, not moments."""
+    errors = []
+    tags = set()
+    for t in expr.atoms(E):
+        if t.tag is not None:
+            if not (isinstance(t.tag, sp.Symbol) and model.classify(t.tag.name).kind == KIND_EVENT):
+                errors.append(f"E(…, {sp.sstr(t.tag)}): the second argument must be an event of the model")
+            tags.add(t.tag)
+        moms = sorted(s.name for s in t.body.free_symbols if model.classify(s.name).kind == KIND_MOMENT)
+        if moms:
+            errors.append(f"inside E(…), use the variables NA1…, not moments ({', '.join(moms)})")
+    outside = expr.xreplace({t: sp.S.Zero for t in expr.atoms(E)})
+    stray = sorted(s.name for s in outside.free_symbols if model.classify(s.name).kind == KIND_EVENT)
+    if stray:
+        errors.append(f"event name(s) {', '.join(stray)} can only be the second argument of E(…)")
+    return errors
 
 
 def read_equation(lhs: str, rhs: str, model: ToolModel) -> EquationReading:
@@ -357,14 +385,14 @@ def categories(symbols: dict[str, SymbolInfo], model: ToolModel) -> list[tuple[s
         else:
             label = {KIND_DERIVATIVE: "Derivatives", KIND_STATE: "State variables",
                      KIND_PARAMETER: "Parameters", KIND_FUNCTION: "Functions",
-                     KIND_UNKNOWN: "Not in model"}[info.kind]
+                     KIND_EVENT: "Events", KIND_UNKNOWN: "Not in model"}[info.kind]
         groups.setdefault(label, []).append(info)
 
     def rank(label: str) -> tuple:
         m = re.match(r"Moments of order (\d+)", label)
         if m:
             return (0, int(m.group(1)))
-        return (1, ["Derivatives", "State variables", "Parameters", "Functions",
+        return (1, ["Derivatives", "State variables", "Parameters", "Functions", "Events",
                     "Not in model"].index(label))
 
     out = []
