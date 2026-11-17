@@ -371,12 +371,24 @@ def test_validated_22_recognize_dn_A1():
     assert not r.notes
 
 
-def test_validated_23_recognize_dM_A1_A1_keeps_birth_plus_death():
-    r, _ = recognize_line("dM_A1_A1/dt")
+def test_validated_23_without_omega_keeps_birth_plus_death():
+    """v0.2 rule, still true with a model that only defines the r (no omega)."""
+    from sympy_tools.core.model import DEFAULT_MODEL_V04
+    m4 = load_model(DEFAULT_MODEL_V04)
+    rhs = dict(_closure_lines())["dM_A1_A1/dt"]
+    r = apply(RECOGNIZE, read_expression(rhs, m4), m4)
     assert "M_A1_A1*(-2*m + 2*r_A1 + 1/KA)" in r.text
     assert "n_A1*(m + rmaxA + s*(-thA + x1)**2)" in r.text
     assert r.notes == ["Kept as it is (not a combination of r_A1, r_A2, r_B1, r_B2): "
                        "coefficient of n_A1."]
+
+
+def test_validated_52_recognize_with_omega():
+    """v0.5: birth + death in front of <N_A1> is written rmaxA + omega_A1."""
+    r, _ = recognize_line("dM_A1_A1/dt")
+    assert "M_A1_A1*(-2*m + 2*r_A1 + 1/KA)" in r.text
+    assert "n_A1*(m + omega_A1 + rmaxA)" in r.text
+    assert not r.notes
 
 
 def test_validated_24_recognize_two_r_in_one_coefficient():
@@ -397,11 +409,11 @@ def test_validated_26_recognize_then_substitute_gives_back_the_input():
 
 def test_definitions_errors():
     from sympy_tools.core.definitions import definitions
-    bad = load_model(DEFAULT_MODEL.replace("r_A1 = rmaxA - s*(x1 - thA)**2", "r_A1 = r_A2 + 1")
-                     .replace("r_A2 = rmaxA - s*(x2 - thA)**2", "r_A2 = r_A1 * 2"))
+    bad = load_model(DEFAULT_MODEL.replace("r_A1 = rmaxA - omega_A1", "r_A1 = r_A2 + 1")
+                     .replace("r_A2 = rmaxA - omega_A2", "r_A2 = r_A1 * 2"))
     with pytest.raises(ValueError, match="Circular definitions: r_A1, r_A2"):
         definitions(bad)
-    bad2 = load_model(DEFAULT_MODEL.replace("r_A1 = rmaxA - s*(x1 - thA)**2", "r_A1 = M_A1_MA1"))
+    bad2 = load_model(DEFAULT_MODEL.replace("r_A1 = rmaxA - omega_A1", "r_A1 = M_A1_MA1"))
     r = apply(SUBSTITUTE, read_expression("r_A1", bad2), bad2)
     assert not r.ok and "Definition r_A1 = M_A1_MA1" in r.error
 
@@ -438,8 +450,8 @@ def test_validated_38_symmetry_not_respecting_the_events():
 
 def test_validated_39_rate_must_vanish():
     with pytest.raises(ModelError, match="mort_A1: the rate does not vanish when NA1 = 0"):
-        load_model(DEFAULT_MODEL.replace("mort_A1 = (s*(x1 - thA)**2 + (NA1 + NA2)/KA)*NA1 | NA1-1",
-                                         "mort_A1 = s*(x1 - thA)**2 | NA1-1"))
+        load_model(DEFAULT_MODEL.replace("mort_A1 = (omega_A1 + (NA1 + NA2)/KA)*NA1 | NA1-1",
+                                         "mort_A1 = omega_A1 | NA1-1"))
 
 
 @pytest.mark.parametrize("bad, msg", [
@@ -465,7 +477,7 @@ def test_symmetry_declaration_errors():
 
 
 GEN = ("E(NA1*rmaxA*(2*NA1 + 1), naissance_A1) "
-       "+ E(NA1*(1 - 2*NA1)*(s*(-thA + x1)**2 + (NA1 + NA2)/KA), mort_A1) "
+       "+ E(NA1*(1 - 2*NA1)*(omega_A1 + (NA1 + NA2)/KA), mort_A1) "
        "+ E(NA1*m*(1 - 2*NA1), migration_A1_B1) + E(NB1*m*(2*NA1 + 1), migration_B1_A1)")
 
 
@@ -484,7 +496,7 @@ def test_validated_41_take_moments():
     lhs, rhs = generate("M_A1_A1", M)
     r = apply(TAKE_MOMENTS, read_equation(lhs, rhs, M), M)
     assert r.text == ("dM_A1_A1_dt = m*(-2*M_A1_A1 + n_A1) + m*(2*M_A1_B1 + n_B1) "
-                      "+ rmaxA*(2*M_A1_A1 + n_A1) + s*(-2*M_A1_A1 + n_A1)*(-thA + x1)**2 "
+                      "+ omega_A1*(-2*M_A1_A1 + n_A1) + rmaxA*(2*M_A1_A1 + n_A1) "
                       "+ (M_A1_A1 + M_A1_A2 - 2*T_A1_A1_A1 - 2*T_A1_A1_A2)/KA")
     assert cmp(r.text.split(" = ")[1], EXACT_A1A1).verdict == EQUAL
 
@@ -497,7 +509,7 @@ def test_validated_42_generate_take_moments_isserlis_equals_moment_closure_all_1
         closed = t.rhs
         if "T_" in t.text:
             closed = apply(ISSERLIS, read_equation(*t.text.split(" = "), M), M).rhs
-        assert sp.cancel(closed - read(mc_rhs).expr) == 0, key
+        assert cmp(sp.sstr(closed), mc_rhs).verdict == EQUAL, key          # omega substituted
 
 
 def test_validated_43_symmetry_of_a_generated_equation():
@@ -528,3 +540,49 @@ def test_e_reading_errors():
                       ("2*naissance_A1", "second argument of E")):
         r = read(text)
         assert not r.ok and msg in texts(r)
+
+
+# ------------------------------------------------------------------ v0.5 (VALIDATED 46-53, 17/11/2026)
+def test_validated_46_default_model_with_omega():
+    from sympy_tools.core.definitions import definitions
+    d = definitions(M)
+    assert sp.sstr(d.rules[M.symbol("r_A1")]) == "-omega_A1 + rmaxA"           # r defined from omega
+    assert sp.sstr(d.full[M.symbol("r_A1")]) == "rmaxA - s*(-thA + x1)**2"
+    assert "omega_A1" in sp.sstr(process(M).events[1].rate)                    # death with omega
+    syms = {s.name: s for s in process(M).symmetries}
+    assert all(s.valid for s in syms.values())
+    assert syms["phenotypes"].params["omega_A1"] == "omega_A2"
+    assert syms["niches"].params["omega_A1"] == "omega_B1"
+    from latex_preview.core.model import parse_model
+    assert parse_model(DEFAULT_MODEL).param_latex["omega_A1"] == r"\omega_A^{1}"
+
+
+def test_validated_49_compare_substitutes_definitions():
+    lhs, rhs = generate("M_A1_A1", M)
+    t = apply(TAKE_MOMENTS, read_equation(lhs, rhs, M), M)
+    closed = apply(ISSERLIS, read_equation(*t.text.split(" = "), M), M)
+    r = cmp(sp.sstr(closed.rhs), dict(_closure_lines())["dM_A1_A1/dt"])
+    assert r.verdict == EQUAL and r.verdict_text == "Equal (proved, after substituting definitions)"
+    assert r.code[1] == "lhs, rhs = lhs.xreplace(rules), rhs.xreplace(rules)   # definitions first"
+
+
+def test_validated_50_recognize_after_take_moments():
+    lhs, rhs = generate("M_A1_A1", M)
+    t = apply(TAKE_MOMENTS, read_equation(lhs, rhs, M), M)
+    r = apply(RECOGNIZE, read_equation(*t.text.split(" = "), M), M)
+    assert "M_A1_A1*(-2*m + 2*r_A1 + 1/KA)" in r.text and "n_A1*(m + omega_A1 + rmaxA)" in r.text
+
+
+def test_validated_51_symmetry_maps_omega():
+    lhs, rhs = generate("M_A1_A1", M)
+    r = apply(SYMMETRY, read_equation(lhs, rhs, M), M, "phenotypes")
+    assert "omega_A2" in r.text and "omega_A1" not in r.text
+
+
+def test_validated_53_substitute_all_the_way():
+    assert op(SUBSTITUTE, "r_A1*n_A1").text == "n_A1*(rmaxA - s*(-thA + x1)**2)"
+
+
+def test_old_default_v04_is_recognised():
+    from sympy_tools.core.model import DEFAULT_MODEL_V04, is_default
+    assert is_default(DEFAULT_MODEL_V04) and is_default(DEFAULT_MODEL) and not is_default("[variables]\nA1 = N")

@@ -91,7 +91,7 @@ class MainWindow(QMainWindow):
         self._startup_note = ""
         if self._model_text and not self._model_path and is_default(self._model_text):
             if self._model_text.strip() != DEFAULT_MODEL.strip():
-                self._startup_note = "Saved default model updated (events and symmetries added)."
+                self._startup_note = "Saved default model updated to the current default (events, symmetries, omega)."
             self._model_text = ""                 # the default model, always the current one
             self.s.set("model_text", "")
         try:

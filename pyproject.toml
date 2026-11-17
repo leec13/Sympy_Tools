@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sympy-tools"
-version = "0.4.1"
+version = "0.5.0"
 description = "SymPy operations on population-dynamics expressions (moments, rates), with Python and LaTeX output."
 requires-python = ">=3.10"
 # latex-preview (github.com/leec13/latex-preview) is also required. It is not on PyPI,

@@ -114,7 +114,7 @@ The model can declare the stochastic process, one explicit line per event (`name
 ```ini
 [evenements]
 naissance_A1 = rmaxA*NA1 | NA1+1
-mort_A1 = (s*(x1 - thA)**2 + (NA1 + NA2)/KA)*NA1 | NA1-1
+mort_A1 = (omega_A1 + (NA1 + NA2)/KA)*NA1 | NA1-1
 migration_A1_B1 = m*NA1 | NA1-1, NB1+1
 …
 [symetries]
@@ -156,7 +156,15 @@ The window is light, like latex-preview, with its own identity so that it is eas
   positive = rmaxA, rmaxB, s, KA, KB, m
   real = x1, x2, thA, thB
   ```
-  The `[definitions]` section (`r_A1 = rmaxA - s*(x1 - thA)**2` …) is used by Substitute and Recognize definitions. A definition may use another one; circular definitions are an error.
+  The `[definitions]` section is used by Substitute, Recognize and Compare. In the default model:
+  ```ini
+  omega_A1 = s*(x1 - thA)**2      # death rate by selection (parameter of the death event)
+  r_A1 = rmaxA - omega_A1         # net growth rate
+  ```
+  - A definition may use another one; circular definitions are an error.
+  - Substitute replaces everything at once, down to the base parameters.
+  - Compare always substitutes the definitions first.
+  - Recognize looks for the shortest exact writing, coefficient by coefficient. rmaxA may stay with its own coefficient, but is never added nor changed. For example, birth + death in front of ⟨N_A¹⟩ gives `m + rmaxA + omega_A1`, and in front of ⟨(N_A¹)²⟩ gives `-2*m + 2*r_A1 + 1/KA`.
 
   Assumptions change what Simplify and Compare can prove. For example `sqrt(KA**2)` = `KA` because KA > 0, but `sqrt(x1**2)` = `Abs(x1)` because x1 is only real.
 
@@ -168,7 +176,7 @@ python -m pytest
 
 The tests use their own preferences file and never touch yours.
 
-The tests contain the examples of the specifications (`docs/spec_v0.1.md` to `docs/spec_v0.4.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
+The tests contain the examples of the specifications (`docs/spec_v0.1.md` to `docs/spec_v0.5.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
 
 ## Structure
 

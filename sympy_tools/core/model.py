@@ -25,7 +25,7 @@ from latex_preview.core.model import Model, ModelError, parse_model
 
 __all__ = ["DEFAULT_MODEL", "ModelError", "ToolModel", "load_model", "SymbolInfo"]
 
-DEFAULT_MODEL = LP_DEFAULT_MODEL.rstrip("\n") + """
+DEFAULT_MODEL_V04 = LP_DEFAULT_MODEL.rstrip("\n") + """
 
 [hypotheses]
 # SymPy assumptions (ignored by latex-preview): positive, nonnegative, negative,
@@ -58,9 +58,42 @@ phenotypes = A1<->A2, B1<->B2, x1<->x2
 niches = A1<->B1, A2<->B2, rmaxA<->rmaxB, KA<->KB, thA<->thB
 """
 
-# Default model of v0.1 to v0.3 (no events, no symmetries): a copy of it saved in the
-# preferences is replaced by the current default.
-OLD_DEFAULTS = (DEFAULT_MODEL.split("\n[evenements]")[0].rstrip("\n") + "\n",)
+# v0.5: omega_ik = s*(x_k - th_i)**2, death rate by selection (parameter of the death
+# event); r_ik = rmax_i - omega_ik, net growth rate. Same LaTeX names as latex-preview.
+_OMEGA_PARAMS = """omega_A1 = \\omega_A^{1} | \\omega_{A}^{1} | \\omega^{1}_{A}
+omega_A2 = \\omega_A^{2} | \\omega_{A}^{2} | \\omega^{2}_{A}
+omega_B1 = \\omega_B^{1} | \\omega_{B}^{1} | \\omega^{1}_{B}
+omega_B2 = \\omega_B^{2} | \\omega_{B}^{2} | \\omega^{2}_{B}
+t = t"""
+_OLD_DEFS = """r_A1 = rmaxA - s*(x1 - thA)**2
+r_A2 = rmaxA - s*(x2 - thA)**2
+r_B1 = rmaxB - s*(x1 - thB)**2
+r_B2 = rmaxB - s*(x2 - thB)**2"""
+_NEW_DEFS = """omega_A1 = s*(x1 - thA)**2
+omega_A2 = s*(x2 - thA)**2
+omega_B1 = s*(x1 - thB)**2
+omega_B2 = s*(x2 - thB)**2
+r_A1 = rmaxA - omega_A1
+r_A2 = rmaxA - omega_A2
+r_B1 = rmaxB - omega_B1
+r_B2 = rmaxB - omega_B2"""
+
+
+def _with_omega(text: str) -> str:
+    out = text.replace("t = t", _OMEGA_PARAMS, 1).replace(_OLD_DEFS, _NEW_DEFS, 1)
+    for i, k in (("A", "1"), ("A", "2"), ("B", "1"), ("B", "2")):
+        out = out.replace(f"(s*(x{k} - th{i})**2 + (N{i}1 + N{i}2)/K{i})*N{i}{k}",
+                          f"(omega_{i}{k} + (N{i}1 + N{i}2)/K{i})*N{i}{k}")
+    return out.replace("# s*(x_k - th_i)**2 + N_i/K_i (N_i = total of niche i)",
+                       "# omega_ik + N_i/K_i (omega_ik = s*(x_k - th_i)**2, N_i = total of niche i)")
+
+
+DEFAULT_MODEL = _with_omega(DEFAULT_MODEL_V04)
+
+# Older defaults (v0.1-v0.3: no events; v0.4: no omega): a copy of one of them saved
+# unchanged in the preferences is replaced by the current default.
+OLD_DEFAULTS = (DEFAULT_MODEL_V04.split("\n[evenements]")[0].rstrip("\n") + "\n",
+                DEFAULT_MODEL_V04)
 
 
 def is_default(text: str) -> bool:

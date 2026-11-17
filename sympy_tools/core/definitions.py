@@ -4,20 +4,25 @@
 * Recognize: the formulas -> r_A1…, wherever this is exact and unambiguous.
 
 Recognize works coefficient by coefficient (one coefficient per product of moments,
-as "Collect by all moments"). A coefficient c is rewritten only if
+as "Collect by all moments"), after substituting every definition. A coefficient c is
+rewritten with its shortest exact writing
 
-    c = α1·r1 + α2·r2 + … + c0
+    c = α1·d1 + α2·d2 + … (+ rmaxA, with its own coefficient) + c0
 
 where c0 and the α's no longer contain any symbol of the formulas (rmaxA, s, x1,
-thA…). Since each formula has a term of its own (s·x1·thA for r_A1), such a
-decomposition is unique when it exists. Otherwise the coefficient is kept as it is
-and reported. The result is checked: substituting the definitions back gives the
-input exactly.
+thA…). A symbol that appears alone in a formula (rmaxA) may stay as it was, but is
+never added nor changed. With overlapping definitions (r_A1 = rmaxA - omega_A1),
+several writings exist: the fewest terms win, then the smallest coefficients
+(rmaxA + omega_A1 rather than r_A1 + 2*omega_A1). Without such a writing the
+coefficient is kept as it is and reported. The result is checked: substituting the
+definitions back gives the input exactly.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+import itertools
 
 import sympy as sp
 
@@ -75,26 +80,63 @@ def used_rules(exprs, defs: Definitions) -> dict[sp.Symbol, sp.Expr]:
 
 
 # ---------------------------------------------------------------- recognize
+def _lone_symbols(defs: Definitions) -> list[sp.Symbol]:
+    """Symbols that appear alone, as a term of their own, in a formula (rmaxA in
+    rmaxA - s*(x1 - thA)**2). They may stay in a result, with their own coefficient."""
+    out = []
+    for v in defs.symbols:
+        mono = tuple(1 if x == v else 0 for x in defs.symbols)
+        for f in defs.full.values():
+            if sp.Poly(sp.expand(f), *defs.symbols).coeff_monomial(mono) != 0:
+                out.append(v)
+                break
+    return out
+
+
 def _decompose(c: sp.Expr, defs: Definitions) -> sp.Expr | None:
-    """c = Σ α_k·r_k + c0 (exact, unique), or None."""
-    keys = list(defs.full)
-    alphas = sp.symbols(f"_alpha0:{len(keys)}")
-    try:
-        poly = sp.Poly(sp.expand(c - sum(a * defs.full[k] for a, k in zip(alphas, keys))),
-                       *defs.symbols)
-    except sp.PolynomialError:
+    """Shortest exact writing of c with the definitions, or None.
+
+    c = Σ α_k·def_k + Σ β·lone + c0, where c0 no longer contains any symbol of the
+    formulas; a lone symbol (rmaxA) may only keep its own coefficient in c; among the
+    writings with the fewest terms, the one with the smallest coefficients."""
+    D = defs.symbols
+    lone = getattr(defs, "_lone", None)
+    if lone is None:
+        lone = _lone_symbols(defs)
+        object.__setattr__(defs, "_lone", lone)
+    poly = sp.Poly(sp.expand(c), *D)
+    c0 = poly.coeff_monomial(tuple(0 for _ in D))
+    cD = sp.expand(c - c0)
+    if cD == 0:
         return None
-    equations = [co for mon, co in poly.terms() if any(mon)]
-    sol = sp.solve(equations, alphas, dict=True)
-    if len(sol) != 1 or set(sol[0]) != set(alphas):
-        return None                       # no exact decomposition, or not unique
-    s = sol[0]
-    if any(s[a].free_symbols & set(defs.symbols) for a in alphas):
-        return None
-    if all(s[a] == 0 for a in alphas):
-        return None
-    c0 = sp.expand(c - sum(s[a] * defs.full[k] for a, k in zip(alphas, keys)))
-    return sum(s[a] * k for a, k in zip(alphas, keys)) + c0
+    present = cD.free_symbols & set(D)
+    gens = [(k, sp.expand(f)) for k, f in defs.full.items()] + [(v, v) for v in lone]
+    gens = [(k, g) for k, g in gens if (g.free_symbols & set(D)) <= present]
+    for size in range(1, len(gens) + 1):
+        best = None
+        for subset in itertools.combinations(gens, size):
+            beta = sp.symbols(f"_beta0:{size}")
+            rest = sp.Poly(sp.expand(cD - sum(b * g for b, (_, g) in zip(beta, subset))), *D)
+            sol = sp.solve(rest.coeffs(), beta, dict=True)
+            if len(sol) != 1 or set(sol[0]) != set(beta):
+                continue
+            s = sol[0]
+            if any(s[b] == 0 or s[b].free_symbols & set(D) for b in beta):
+                continue
+            ok = True
+            for b, (name, _) in zip(beta, subset):
+                if name in lone:      # rmaxA: only with its own coefficient, never created
+                    mono = tuple(1 if x == name else 0 for x in D)
+                    if sp.simplify(s[b] - poly.coeff_monomial(mono)) != 0:
+                        ok = False
+            if not ok:
+                continue
+            cost = sum(abs(v) if v.is_number else 1 for v in s.values())
+            if best is None or cost < best[0]:
+                best = (cost, sum(s[b] * name for b, (name, _) in zip(beta, subset)))
+        if best is not None:
+            return sp.expand(best[1]) + sp.expand(c0)
+    return None
 
 
 def _tidy(c: sp.Expr, defs: Definitions) -> sp.Expr:
@@ -118,7 +160,7 @@ class Recognized:
 
 
 def recognize(expr: sp.Expr, defs: Definitions, model: ToolModel) -> Recognized:
-    e = sp.expand(expr)
+    e = sp.expand(expr.xreplace(defs.full))       # first, everything with the base parameters
     rank = {c: k for k, c in enumerate(model.codes)}
     infos = {s: model.classify(s.name) for s in e.free_symbols}
     moments = sorted((s for s, i in infos.items() if i.kind == KIND_MOMENT),
