@@ -17,6 +17,7 @@ Compare decides whether lhs - rhs is identically zero:
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass, field
 
 import sympy as sp
@@ -124,6 +125,22 @@ def apply(op: str, reading: Reading | EquationReading, model: ToolModel,
     except Exception as exc:  # noqa: BLE001 - SymPy failures are reported
         res.ok, res.error = False, f"SymPy error ({type(exc).__name__}): {exc}"
     return res
+
+
+# ---------------------------------------------------------------- chains
+def chain_code(code: list[str], label: str, first: bool) -> list[str]:
+    """Code lines of one step of a chain: the first step starts from expr (or lhs, rhs),
+    the next ones from result; the step's name is added as a comment."""
+    lines = list(code) if first else [re.sub(r"\bexpr\b", "result", c) for c in code]
+    if lines:
+        head = lines[0]
+        if "   # " in head:
+            lines[0] = head.replace("   # ", f"   # {label}: ", 1)
+        elif head.startswith("#"):
+            lines[0] = f"# {label}: " + head[1:].lstrip()
+        else:
+            lines[0] = f"{head}   # {label}"
+    return lines
 
 
 # ---------------------------------------------------------------- Isserlis, definitions

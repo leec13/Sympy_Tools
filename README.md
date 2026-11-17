@@ -64,7 +64,15 @@ SymPy's own names (`N`, `S`, `E`, `I`, `Q`, `gamma`…) are never used: here the
 
 ## Operations
 
-On an equation, each operation is applied to each side. The **SymPy code** pane shows the line that really ran.
+Operations **chain**: each one applies to the result shown (or to the input when nothing has been computed yet), and the input itself is never changed.
+- The title shows the chain, e.g. *Result — Isserlis (order 3) → Collect by all moments*.
+- The **SymPy code** pane shows every step that really ran, one per line, each named in a comment.
+- The Collect by list and the Isserlis / definitions buttons follow the current result.
+- **↺ Back to input** forgets the chain. Editing the input, or changing the mode or the model, does the same.
+- **↑ Use as input** copies the current result into the input fields.
+- **Compare** checks the current equation without replacing it.
+
+On an equation, each operation is applied to each side.
 
 | Button | SymPy | Shortcut |
 |---|---|---|
@@ -93,7 +101,7 @@ The Isserlis and definitions buttons are greyed out when they have nothing to do
   - Other coefficients are kept as they are and listed. For example, the birth + death coefficient rmaxA + s(x1−θA)² is not an r_A1.
   - The result is checked: substituting the definitions back gives the input exactly.
   - `docs/v0.2_cas_22_25.pdf` shows four cases before and after.
-- **↑ Use as input**: the result becomes the input, to chain operations.
+- **↑ Use as input**: the current result becomes the input (to edit it by hand, for example).
 
 Note: Factor and Simplify put everything over a common denominator as soon as there is a `1/KA`. This is SymPy's behaviour.
 
@@ -132,7 +140,7 @@ The window is light, like latex-preview, with its own identity so that it is eas
 python -m pytest
 ```
 
-The tests contain the examples of the specifications (`docs/spec_v0.1.md`, `docs/spec_v0.2.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
+The tests contain the examples of the specifications (`docs/spec_v0.1.md` to `docs/spec_v0.3.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
 
 ## Structure
 
