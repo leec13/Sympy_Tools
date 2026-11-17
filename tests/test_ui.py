@@ -8,7 +8,20 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 from PySide6.QtCore import QStandardPaths  # noqa: E402
 
-QStandardPaths.setTestModeEnabled(True)    # do not touch the user's preferences
+QStandardPaths.setTestModeEnabled(True)    # see also conftest.py (SYMPY_TOOLS_SETTINGS)
+
+
+WARNINGS: list = []
+
+
+@pytest.fixture(autouse=True)
+def no_blocking_dialogs(monkeypatch):
+    """A message box would block an offscreen test forever: record its text instead."""
+    WARNINGS.clear()
+    for name in ("warning", "critical", "information", "question"):
+        monkeypatch.setattr(QtWidgets.QMessageBox, name,
+                            staticmethod(lambda *a, **k: WARNINGS.append(a[2] if len(a) > 2 else a)))
+    yield
 
 
 @pytest.fixture(scope="module")
@@ -22,14 +35,16 @@ def win():
     w.close()
 
 
-def _wait(app, cond, timeout=60):
+def _wait(app, cond, timeout=30):
     end = time.time() + timeout
     while time.time() < end:
         app.processEvents()
         if cond():
             return True
+        if WARNINGS:
+            raise AssertionError(f"message box: {WARNINGS}")
         time.sleep(0.02)
-    return False
+    raise AssertionError(f"timeout ({timeout} s); message boxes: {WARNINGS}")
 
 
 def test_expression_expand_and_use_as_input(win):
@@ -224,13 +239,54 @@ def test_v04_generate_take_moments_isserlis_symmetry(win):
     assert "Take moments → Isserlis (order 3) → Symmetry phenotypes" in w.result_title.text()
 
 
-def test_v04_events_dialog_and_generate_error(win, monkeypatch):
+def test_v04_events_dialog_and_generate_error(win):
     w, app = win
     from sympy_tools.ui.events_dialog import EventsDialog
     d = EventsDialog(w.model, w)
     assert d.tex.count(r"\checkmark") == 36
-    shown = []
-    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a: shown.append(a[2]))
     w.moment_field.setText("M_A1_XX")
     w.generate()
-    assert shown and "unknown code" in shown[0]
+    assert WARNINGS and "unknown code" in WARNINGS[0]
+    WARNINGS.clear()
+
+
+def test_settings_are_isolated():
+    import os
+    from sympy_tools.settings import Settings
+    assert os.environ["SYMPY_TOOLS_SETTINGS"].endswith("settings.ini")
+    assert Settings()._q.fileName() == os.environ["SYMPY_TOOLS_SETTINGS"]
+
+
+def test_old_saved_default_model_is_upgraded():
+    from sympy_tools.core.model import OLD_DEFAULTS
+    from sympy_tools.settings import Settings
+    from sympy_tools.ui.main_window import MainWindow
+    s = Settings()
+    s.set("model_text", OLD_DEFAULTS[0])
+    s.set("model_path", "")
+    w = MainWindow()
+    try:
+        assert w._model_text == "" and len(w.model.events_raw) == 12
+        assert "updated" in w.statusBar().currentMessage()
+        assert Settings().get("model_text") == ""
+    finally:
+        w.close()
+
+
+def test_model_without_events_says_so():
+    from sympy_tools.core.model import OLD_DEFAULTS
+    from sympy_tools.settings import Settings
+    from sympy_tools.ui.main_window import MainWindow
+    s = Settings()
+    s.set("model_text", OLD_DEFAULTS[0])
+    s.set("model_path", "/tmp/my_model.ini")       # a file of the user: not replaced
+    w = MainWindow()
+    try:
+        assert not w.model.events_raw
+        assert "has no events" in w.statusBar().currentMessage()
+        w.generate()
+        assert WARNINGS and "no events" in WARNINGS[0]
+    finally:
+        w.close()
+        s.set("model_text", "")
+        s.set("model_path", "")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import QSettings
 
 WELCOME_RHS = ("m*(n_A1 + n_B1 + 2*M_A1_B1 - 2*M_A1_A1) + rmaxA*(n_A1 + 2*M_A1_A1)"
@@ -28,7 +30,13 @@ _TYPES = {k: type(v) for k, v in DEFAULTS.items()}
 
 class Settings:
     def __init__(self) -> None:
-        self._q = QSettings("SympyTools", "SympyTools")
+        # SYMPY_TOOLS_SETTINGS=/path/file.ini: preferences in that file (the tests use it,
+        # so that they never read nor change the user's preferences).
+        path = os.environ.get("SYMPY_TOOLS_SETTINGS")
+        if path:
+            self._q = QSettings(path, QSettings.Format.IniFormat)
+        else:
+            self._q = QSettings("SympyTools", "SympyTools")
 
     def get(self, key: str):
         default = DEFAULTS[key]

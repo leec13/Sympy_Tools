@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
 
 from ..core import jobs
 from ..core.jobs import EQUATION, EXPRESSION
-from ..core.model import ModelError, load_model
+from ..core.model import DEFAULT_MODEL, ModelError, is_default, load_model
 from ..core.operations import (ALL_MOMENTS, COLLECT, COMPARE, EXPAND, FACTOR,
                                ISSERLIS, OPERATIONS, RECOGNIZE, SIMPLIFY, SUBSTITUTE, SYMMETRY,
                                TAKE_MOMENTS, available, chain_code)
@@ -88,6 +88,12 @@ class MainWindow(QMainWindow):
         self._model_text = self.s.get("model_text")
         self._model_path = self.s.get("model_path")
         self._model_edited = False
+        self._startup_note = ""
+        if self._model_text and not self._model_path and is_default(self._model_text):
+            if self._model_text.strip() != DEFAULT_MODEL.strip():
+                self._startup_note = "Saved default model updated (events and symmetries added)."
+            self._model_text = ""                 # the default model, always the current one
+            self.s.set("model_text", "")
         try:
             self.model = load_model(self._model_text)
         except ModelError:
@@ -127,6 +133,7 @@ class MainWindow(QMainWindow):
         self._build()
         self._load_state()
         self._read_input()
+        self._check_events_note()
 
     # ================================================================ layout
     def _build(self) -> None:
@@ -423,6 +430,15 @@ class MainWindow(QMainWindow):
                 self.rhs_edit.toPlainText(), self._model_text)
 
     # ================================================================ model
+    def _check_events_note(self) -> None:
+        note = self._startup_note
+        self._startup_note = ""
+        if not self.model.events_raw:
+            note = ("This model has no events ([evenements]): Generate and Events… need them. "
+                    "Edit model… → Reset to default adds them.")
+        if note:
+            self.statusBar().showMessage(note, 15000)
+
     def _fill_symmetry_combo(self) -> None:
         previous = self.symmetry_combo.currentData()
         self.symmetry_combo.clear()
@@ -464,8 +480,10 @@ class MainWindow(QMainWindow):
         from .model_dialog import ModelDialog
         dlg = ModelDialog(self._model_text, self)
         if dlg.exec():
-            if dlg.text != self._model_text:
-                self._set_model(dlg.text, self._model_path, edited=True)
+            text = "" if (not self._model_path and is_default(dlg.text)) else dlg.text
+            if text != self._model_text:
+                self._set_model(text, self._model_path, edited=bool(text))
+                self._check_events_note()
 
     def load_model_file(self) -> None:
         start = os.path.dirname(self._model_path) if self._model_path else (
@@ -482,9 +500,9 @@ class MainWindow(QMainWindow):
         self.s.set("last_dir", os.path.dirname(path))
         if self._set_model(text, path, edited=False):
             self.statusBar().showMessage(f"Model loaded: {path}", 5000)
+            self._check_events_note()
 
     def save_model_file(self) -> None:
-        from ..core.model import DEFAULT_MODEL
         start = self._model_path or os.path.join(self.s.get("last_dir") or os.path.expanduser("~"),
                                                  "model.ini")
         path, _ = QFileDialog.getSaveFileName(self, "Save model as", start, "Model (*.ini)")
