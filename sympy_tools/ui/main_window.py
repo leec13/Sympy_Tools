@@ -13,7 +13,8 @@ from latex_preview.core.pipeline import render_snippet
 from latex_preview.ui.preview import PreviewArea, cropped_to_qimage
 from latex_preview.ui.worker import Runner
 from PySide6.QtCore import QByteArray, QObject, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QFont, QFontDatabase, QKeySequence, QStandardItem, QStandardItemModel
+from PySide6.QtGui import (QAction, QFont, QFontDatabase, QKeySequence, QStandardItem,
+                           QStandardItemModel, QTextCursor)
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QFileDialog,
                                QFormLayout, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox,
                                QPlainTextEdit, QPushButton, QRadioButton, QToolButton, QVBoxLayout, QWidget)
@@ -22,7 +23,8 @@ from ..core import jobs
 from ..core.jobs import EQUATION, EXPRESSION
 from ..core.model import ModelError, load_model
 from ..core.operations import (ALL_MOMENTS, COLLECT, COMPARE, EXPAND, FACTOR,
-                               ISSERLIS, OPERATIONS, RECOGNIZE, SIMPLIFY, SUBSTITUTE, available)
+                               ISSERLIS, OPERATIONS, RECOGNIZE, SIMPLIFY, SUBSTITUTE, available,
+                               chain_code)
 from ..core.output import overleaf, reading_latex
 from ..core.reading import ERROR, WARNING, categories, read_equation, read_expression, split_equation
 from ..settings import Settings
@@ -89,6 +91,13 @@ class MainWindow(QMainWindow):
             self._model_text, self._model_path = "", ""
             self.model = load_model("")
         self._reading = None
+        # chain of operations: each one applies to the result shown (v0.3)
+        self._chain: list[tuple[str, list[str]]] = []   # (label, code lines)
+        self._current: dict | None = None               # last result (python, lhs, rhs, latex, notes)
+        self._current_reading = None                     # that result, read again (symbols, buttons)
+        self._compare: dict | None = None                # Compare shown (does not change _current)
+        self._version = 0                                # changes whenever the chain is reset
+        self._pending: tuple | None = None
         self._shown = _Shown()
         self._request = 0
         self._request_input = None
@@ -285,6 +294,10 @@ class MainWindow(QMainWindow):
         self.use_button.setToolTip("The result becomes the input, to chain operations")
         self.use_button.clicked.connect(self.use_as_input)
         row.addWidget(self.use_button)
+        self.back_button = QPushButton("↺ Back to input")
+        self.back_button.setToolTip("Forget the chain of operations and start again from the input")
+        self.back_button.clicked.connect(self.back_to_input)
+        row.addWidget(self.back_button)
         lay.addLayout(row)
 
         self.result_view = QPlainTextEdit(readOnly=True)
@@ -463,8 +476,24 @@ class MainWindow(QMainWindow):
         self.rb_eq.setChecked(True)
         self.statusBar().showMessage(message, 5000)
 
+    def _reset_chain(self) -> None:
+        self._chain, self._current, self._current_reading, self._compare = [], None, None, None
+        self._version += 1
+
+    def _active(self):
+        """What the next operation applies to: the current result, or else the input."""
+        return self._current_reading if self._current is not None else self._reading
+
+    def back_to_input(self) -> None:
+        self._reset_chain()
+        self._fill_collect_combo()
+        self._update_buttons()
+        self._show_reading()
+        self.statusBar().showMessage("Back to the input.", 3000)
+
     def _read_input(self) -> None:
         self._read_timer.stop()
+        self._reset_chain()
         if self.mode == EQUATION:
             r = read_equation(self.lhs_edit.toPlainText(), self.rhs_edit.toPlainText(), self.model)
             missing = [s for s, x in (("lhs", r.lhs), ("rhs", r.rhs)) if x.empty]
@@ -496,7 +525,7 @@ class MainWindow(QMainWindow):
         previous = self.collect_combo.currentData() or self.s.get("collect_var")
         model: QStandardItemModel = self.collect_combo.model()
         model.clear()
-        r = self._reading
+        r = self._active()
         if r is None or not r.ok:
             item = QStandardItem("(no symbols)")
             item.setEnabled(False)
@@ -540,17 +569,20 @@ class MainWindow(QMainWindow):
             self.collect_combo.setCurrentIndex(select)
 
     def _update_buttons(self) -> None:
-        ok = self._reading is not None and self._reading.ok
+        active = self._active()
+        ok = active is not None and active.ok
         busy = self.runner.busy
         for op, b in self.op_buttons.items():
             b.setEnabled(ok and not busy and (op != COMPARE or self.mode == EQUATION))
         self.op_buttons[COLLECT].setEnabled(ok and not busy and self.collect_combo.currentData() is not None)
         self.op_buttons[COMPARE].setToolTip(
             "Is lhs - rhs identically 0?" if self.mode == EQUATION else "Compare needs Equation mode")
-        useful = available(self._reading, self.model)
+        useful = available(active, self.model)
         for op, can in useful.items():
             self.op_buttons[op].setEnabled(ok and not busy and can)
         self.stop_button.setVisible(busy)
+        self.back_button.setEnabled(bool(self._chain) or self._compare is not None)
+        self.use_button.setEnabled(bool(self._chain))
 
     # ================================================================ result
     def _show_reading(self) -> None:
@@ -570,6 +602,7 @@ class MainWindow(QMainWindow):
         self._shown = shown
         self.result_title.setText(theme.title(html.escape(shown.title)))
         self.code_view.setPlainText(shown.code)
+        QTimer.singleShot(0, self._fit_code_view)
         self.result_view.setPlainText(shown.python)
         if shown.verdict_text:
             color = _VERDICT_COLORS.get(shown.verdict, "#333333")
@@ -578,20 +611,39 @@ class MainWindow(QMainWindow):
             self.verdict_label.setText("")
         self.result_notes.setText("<br>".join(html.escape(n) for n in shown.notes))
         self.result_notes.setVisible(bool(shown.notes))
-        self.use_button.setEnabled(shown.is_result and bool(shown.python))
+        self.use_button.setEnabled(bool(self._chain))
+        self.back_button.setEnabled(bool(self._chain) or self._compare is not None)
         has = bool(shown.python)
         self.copy_button.setEnabled(has)
         self.latex_view.setPlainText(shown.latex)
         self._render_timer.start(150)
 
+    def _fit_code_view(self) -> None:
+        """The SymPy code pane grows with the chain (3 to 7 lines), then scrolls."""
+        v = self.code_view
+        lines = max(3, min(7, round(v.document().size().height())))
+        v.setFixedHeight(v.fontMetrics().lineSpacing() * lines + 14)
+        v.moveCursor(QTextCursor.MoveOperation.End)
+        v.ensureCursorVisible()
+
     def run(self, op: str) -> None:
-        if self._reading is None or not self._reading.ok or self.runner.busy:
+        active = self._active()
+        if active is None or not active.ok or self.runner.busy:
             return
         var = self.collect_combo.currentData() if op == COLLECT else ""
         if op == COLLECT and not var:
             self.statusBar().showMessage("Choose a variable for Collect by.", 4000)
             return
         mode, text, lhs, rhs, model_text = self._inputs()
+        if self._current is not None:          # chain: start from the result shown
+            if mode == EQUATION:
+                lhs, rhs = self._current["lhs"], self._current["rhs"]
+            else:
+                text = self._current["python"]
+        label = OPERATIONS[op]
+        if op == COLLECT:
+            label += " all moments" if var == ALL_MOMENTS else f" {var}"
+        self._pending = (op, label, self._version)
         self._request_input = self._inputs()
         self._request = self.runner.submit(jobs.run_operation, timeout_s=60.0, model_text=model_text,
                                            mode=mode, text=text, lhs=lhs, rhs=rhs, op=op, var=var or "")
@@ -615,29 +667,53 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
             QMessageBox.warning(self, "Operation", res.get("error", "Unknown error"))
             return
-        op = res["op"]
-        title = f"Result — {OPERATIONS[op]}"
-        if op == COLLECT:
-            var = self.collect_combo.currentData()
-            title += " all moments" if var == ALL_MOMENTS else f" {var}"
+        if self._pending is None or self._pending[2] != self._version:
+            return
+        op, label, _ = self._pending
+        code = res["code"].splitlines()
         if op == COMPARE:
-            title = "Result — Compare: lhs − rhs"
-        self._show(_Shown(python=res["python"], latex=res["latex"], code=res["code"], title=title,
-                          verdict=res.get("verdict", ""), verdict_text=res.get("verdict_text", ""),
-                          notes=tuple(res.get("notes", ())), lhs=res.get("lhs"), rhs=res.get("rhs"),
-                          is_result=True))
-        self.statusBar().showMessage(f"{OPERATIONS[op]}: done.", 3000)
+            self._compare = res
+        else:
+            self._chain.append((label, chain_code(code, label, first=not self._chain)))
+            self._current = {"python": res["python"], "lhs": res.get("lhs"), "rhs": res.get("rhs"),
+                             "latex": res["latex"], "notes": tuple(res.get("notes", ()))}
+            self._compare = None
+            if self.mode == EQUATION:
+                self._current_reading = read_equation(res["lhs"], res["rhs"], self.model)
+            else:
+                self._current_reading = read_expression(res["python"], self.model)
+            self._fill_collect_combo()
+        self._show_current()
+        self._update_buttons()
+        self.statusBar().showMessage(f"{label}: done.", 3000)
+
+    def _show_current(self) -> None:
+        """Show the last result of the chain, or the last Compare."""
+        labels = [lab for lab, _ in self._chain]
+        code = [line for _, lines in self._chain for line in lines]
+        if self._compare is not None:
+            c = self._compare
+            code += chain_code(c["code"].splitlines(), OPERATIONS[COMPARE], first=True)
+            title = "Result — " + " → ".join(labels + ["Compare: lhs − rhs"])
+            self._show(_Shown(python=c["python"], latex=c["latex"], code="\n".join(code), title=title,
+                              verdict=c.get("verdict", ""), verdict_text=c.get("verdict_text", ""),
+                              notes=tuple(c.get("notes", ())), is_result=True))
+            return
+        cur = self._current
+        self._show(_Shown(python=cur["python"], latex=cur["latex"], code="\n".join(code),
+                          title="Result — " + " → ".join(labels), notes=cur["notes"],
+                          lhs=cur["lhs"], rhs=cur["rhs"], is_result=True))
 
     def use_as_input(self) -> None:
-        sh = self._shown
-        if not sh.is_result:
+        cur = self._current
+        if cur is None:
             return
-        if sh.lhs is not None:
-            self.lhs_edit.setPlainText(sh.lhs)
-            self.rhs_edit.setPlainText(sh.rhs)
+        if cur["lhs"] is not None:
+            self.lhs_edit.setPlainText(cur["lhs"])
+            self.rhs_edit.setPlainText(cur["rhs"])
             self.rb_eq.setChecked(True)
         else:
-            self.expr_edit.setPlainText(sh.python)
+            self.expr_edit.setPlainText(cur["python"])
             self.rb_expr.setChecked(True)
         self._read_input()
         self.statusBar().showMessage("Result moved to the input.", 3000)

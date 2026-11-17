@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.0 — 2026-11-17
+Specified with the user before development (`docs/spec_v0.3.md`, cases 27 to 35).
+- **Chained operations**: each operation applies to the result shown, not to the input.
+  Before, Isserlis then Collect by all moments brought the T_… back, because Collect
+  started again from the input.
+- The input is never changed; **↺ Back to input** forgets the chain (as do editing the
+  input, or changing the mode or the model).
+- Title and SymPy code show every step; the code pane grows up to 7 lines.
+- The Collect by list and the Isserlis / definitions buttons follow the current result.
+- Compare checks the current equation without replacing it.
+- No Undo button (decision of 17/11/2026).
+
 ## v0.2.0 — 2026-11-16
 Specified with the user before development (`docs/spec_v0.2.md`, cases 16 to 26).
 - **Isserlis (order 3)**: third-order moments T_… replaced by
