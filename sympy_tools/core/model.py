@@ -58,6 +58,17 @@ phenotypes = A1<->A2, B1<->B2, x1<->x2
 niches = A1<->B1, A2<->B2, rmaxA<->rmaxB, KA<->KB, thA<->thB
 """
 
+# Default model of v0.1 to v0.3 (no events, no symmetries): a copy of it saved in the
+# preferences is replaced by the current default.
+OLD_DEFAULTS = (DEFAULT_MODEL.split("\n[evenements]")[0].rstrip("\n") + "\n",)
+
+
+def is_default(text: str) -> bool:
+    """Empty, the current default, or an older default saved unchanged."""
+    t = (text or "").strip()
+    return not t or t == DEFAULT_MODEL.strip() or any(t == o.strip() for o in OLD_DEFAULTS)
+
+
 # English name -> French name used by latex-preview.
 _SECTION_ALIASES = {
     "variables": "variables",

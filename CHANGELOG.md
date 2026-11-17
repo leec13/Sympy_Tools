@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.1 — 2026-11-17
+- Tests are isolated from the user's preferences (`SYMPY_TOOLS_SETTINGS`, set in
+  `tests/conftest.py`). On macOS they used to read, and write, the real preferences, so
+  a model saved before v0.4 (no events) made Generate fail during the tests.
+- A message box can no longer block a test without a display: it is recorded and the
+  test fails with its text.
+- A copy of an older default model saved in the preferences (v0.1-v0.3, no events) is
+  replaced by the current default at start-up; Edit model… keeps "default" when the text
+  is the default.
+- A model without [evenements] is reported in the status bar (Generate and Events… need
+  it; Edit model… → Reset to default adds them).
+
 ## v0.4.0 — 2026-11-17
 Specified with the user before development (`docs/spec_v0.4.md`, cases 36 to 45).
 - The model declares the stochastic process, `[evenements]` (one line per event: rate | jump),

@@ -166,6 +166,8 @@ The window is light, like latex-preview, with its own identity so that it is eas
 python -m pytest
 ```
 
+The tests use their own preferences file and never touch yours.
+
 The tests contain the examples of the specifications (`docs/spec_v0.1.md` to `docs/spec_v0.4.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
 
 ## Structure
