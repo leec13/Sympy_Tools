@@ -32,6 +32,30 @@ DEFAULT_MODEL = LP_DEFAULT_MODEL.rstrip("\n") + """
 # nonpositive, real. They change what Simplify can do: sqrt(x**2) -> Abs(x) only if x is real.
 positive = rmaxA, rmaxB, s, KA, KB, m
 real = x1, x2, thA, thB
+
+[evenements]
+# The stochastic process (ignored by latex-preview), one line per event:
+#   name = rate | jump
+# Each individual of (niche i, phenotype k): birth at rate rmax_i, death at rate
+# s*(x_k - th_i)**2 + N_i/K_i (N_i = total of niche i), migration to the other niche at rate m.
+naissance_A1 = rmaxA*NA1 | NA1+1
+mort_A1 = (s*(x1 - thA)**2 + (NA1 + NA2)/KA)*NA1 | NA1-1
+migration_A1_B1 = m*NA1 | NA1-1, NB1+1
+naissance_A2 = rmaxA*NA2 | NA2+1
+mort_A2 = (s*(x2 - thA)**2 + (NA1 + NA2)/KA)*NA2 | NA2-1
+migration_A2_B2 = m*NA2 | NA2-1, NB2+1
+naissance_B1 = rmaxB*NB1 | NB1+1
+mort_B1 = (s*(x1 - thB)**2 + (NB1 + NB2)/KB)*NB1 | NB1-1
+migration_B1_A1 = m*NB1 | NB1-1, NA1+1
+naissance_B2 = rmaxB*NB2 | NB2+1
+mort_B2 = (s*(x2 - thB)**2 + (NB1 + NB2)/KB)*NB2 | NB2-1
+migration_B2_A2 = m*NB2 | NB2-1, NA2+1
+
+[symetries]
+# Swaps of variable codes and of parameters; anything not listed is unchanged,
+# r_A1… follow from their definitions, combinations are added automatically.
+phenotypes = A1<->A2, B1<->B2, x1<->x2
+niches = A1<->B1, A2<->B2, rmaxA<->rmaxB, KA<->KB, thA<->thB
 """
 
 # English name -> French name used by latex-preview.
@@ -42,6 +66,8 @@ _SECTION_ALIASES = {
     "fonctions": "fonctions", "functions": "fonctions",
     "definitions": "definitions",
     "hypotheses": "hypotheses", "assumptions": "hypotheses",
+    "evenements": "evenements", "events": "evenements",
+    "symetries": "symetries", "symmetries": "symetries",
 }
 _MOMENT_KEY_ALIASES = {
     "prefixes": "prefixes",
@@ -57,6 +83,7 @@ KIND_DERIVATIVE = "derivative"
 KIND_STATE = "state"
 KIND_PARAMETER = "parameter"
 KIND_FUNCTION = "function"
+KIND_EVENT = "event"
 KIND_UNKNOWN = "unknown"
 
 
@@ -82,10 +109,11 @@ def _configparser() -> configparser.ConfigParser:
     return cp
 
 
-def normalize_ini(text: str) -> tuple[str, dict[str, list[str]]]:
-    """French/English names -> the French text latex-preview reads, and the assumptions.
+def normalize_ini(text: str) -> tuple[str, dict[str, list[str]], list, list]:
+    """French/English names -> the French text latex-preview reads, and our own sections.
 
-    Returns (text for latex_preview.parse_model, {assumption: [names]})."""
+    Returns (text for latex_preview.parse_model, {assumption: [names]},
+    [(event, "rate | jump")], [(symmetry, "A1<->A2, …")])."""
     src = _configparser()
     try:
         src.read_string(text)
@@ -93,10 +121,20 @@ def normalize_ini(text: str) -> tuple[str, dict[str, list[str]]]:
         raise ModelError(f"Unreadable model file: {exc}") from exc
     out = _configparser()
     hyp: dict[str, list[str]] = {}
+    events: list[tuple[str, str]] = []
+    symmetries: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for section in src.sections():
         target = _SECTION_ALIASES.get(section.strip().lower())
         if target is None:
             raise ModelError(f"Unknown section [{section}].")
+        if target in ("evenements", "symetries"):
+            if target in seen:
+                raise ModelError(f"Section [{section}] is given twice (French and English names).")
+            seen.add(target)
+            (events if target == "evenements" else symmetries).extend(
+                (k.strip(), v.strip()) for k, v in src.items(section))
+            continue
         if target == "hypotheses":
             for key, value in src.items(section):
                 k = key.strip().lower()
@@ -121,7 +159,7 @@ def normalize_ini(text: str) -> tuple[str, dict[str, list[str]]]:
         lines.append(f"[{section}]")
         lines += [f"{k} = {v}" for k, v in out.items(section)]
         lines.append("")
-    return "\n".join(lines), hyp
+    return "\n".join(lines), hyp, events, symmetries
 
 
 @dataclass
@@ -130,6 +168,8 @@ class ToolModel:
 
     lp: Model
     assumptions: dict[str, dict[str, bool]] = field(default_factory=dict)  # name -> {real: True}
+    events_raw: list[tuple[str, str]] = field(default_factory=list)       # [(name, "rate | jump")]
+    symmetries_raw: list[tuple[str, str]] = field(default_factory=list)   # [(name, "A1<->A2, …")]
     _symbols: dict[str, sp.Symbol] = field(default_factory=dict, repr=False)
     _functions: dict[str, type] = field(default_factory=dict, repr=False)
 
@@ -217,6 +257,8 @@ class ToolModel:
             return SymbolInfo(name, KIND_STATE)
         if name in self.function_names:
             return SymbolInfo(name, KIND_FUNCTION)
+        if any(name == n for n, _ in self.events_raw):
+            return SymbolInfo(name, KIND_EVENT)
         codes = self.lp.parse_moment_name(name)
         if codes is not None and tuple(codes) == self.sort_codes(codes):
             return SymbolInfo(name, KIND_MOMENT, tuple(codes))
@@ -230,7 +272,7 @@ def load_model(text: str | None = None) -> ToolModel:
     """Read a model (.ini text). None or empty: the default model."""
     if not text or not text.strip():
         text = DEFAULT_MODEL
-    lp_text, hyp = normalize_ini(text)
+    lp_text, hyp, events, symmetries = normalize_ini(text)
     lp = parse_model(lp_text)
     assumptions: dict[str, dict[str, bool]] = {}
     for key, names in hyp.items():
@@ -238,4 +280,7 @@ def load_model(text: str | None = None) -> ToolModel:
             if not re.fullmatch(r"[A-Za-z]\w*", n):
                 raise ModelError(f"[hypotheses] '{n}' is not a valid name.")
             assumptions.setdefault(n, {})[key] = True
-    return ToolModel(lp=lp, assumptions=assumptions)
+    model = ToolModel(lp=lp, assumptions=assumptions, events_raw=events, symmetries_raw=symmetries)
+    from .process import process      # checks events and symmetries (ModelError if wrong)
+    process(model)
+    return model

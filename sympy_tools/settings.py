@@ -15,6 +15,7 @@ DEFAULTS = {
     "lhs_text": "dM_A1_A1_dt",
     "rhs_text": WELCOME_RHS,
     "collect_var": "",
+    "generate_moment": "M_A1_A1",
     "show_latex_code": False,
     "show_latex_rendered": True,
     "zoom": 1.6,

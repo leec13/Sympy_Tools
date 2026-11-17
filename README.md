@@ -84,6 +84,8 @@ On an equation, each operation is applied to each side.
 | Isserlis (order 3) | `expr.xreplace({T_A1_A1_A2: M_A1_A1*n_A2 + 2*M_A1_A2*n_A1 - 2*n_A1**2*n_A2, …})` | ⌘6 |
 | Substitute definitions | `expr.xreplace({r_A1: rmaxA - s*(x1 - thA)**2, …})` | ⌘7 |
 | Recognize definitions | the formulas become `r_A1`…, coefficient by coefficient (see below) | ⌘8 |
+| Take moments | inside each `E(…)`, products of N become moments | ⌘9 |
+| Symmetry ▾ Apply | `expr.xreplace({M_A1_A1: M_A2_A2, …, x1: x2, x2: x1})` | ⌘0 |
 
 The Isserlis and definitions buttons are greyed out when they have nothing to do (no `T_…`, no `r_…`, no `rmaxA`…).
 
@@ -104,6 +106,30 @@ The Isserlis and definitions buttons are greyed out when they have nothing to do
 - **↑ Use as input**: the current result becomes the input (to edit it by hand, for example).
 
 Note: Factor and Simplify put everything over a common denominator as soon as there is a `1/KA`. This is SymPy's behaviour.
+
+## Process, events and symmetries
+
+The model can declare the stochastic process, one explicit line per event (`name = rate | jump`), and its symmetries:
+
+```ini
+[evenements]
+naissance_A1 = rmaxA*NA1 | NA1+1
+mort_A1 = (s*(x1 - thA)**2 + (NA1 + NA2)/KA)*NA1 | NA1-1
+migration_A1_B1 = m*NA1 | NA1-1, NB1+1
+…
+[symetries]
+phenotypes = A1<->A2, B1<->B2, x1<->x2
+niches = A1<->B1, A2<->B2, rmaxA<->rmaxB, KA<->KB, thA<->thB
+```
+
+The default model contains the 12 events of `moment_closure.py` and these two symmetries. Their combination is added automatically, and the r_A1… follow from their definitions. When the model is loaded, rates and jumps are checked: for instance, a rate must vanish when the population that decreases is 0.
+
+- **Events…** shows, compiled in LaTeX, every event with its image by each symmetry, ✓ or ✗. A symmetry is valid when the events are mapped onto themselves; then every moment equation is symmetric, at every order, before and after closure. This is where symmetries can be checked by eye.
+- **Process: Generate d/dt** writes the equation of a moment event by event, `E(w·Δf, event)` for ⟨w·[f(N+J)−f(N)]⟩, and puts it in the input. In LaTeX, each term is labelled with its event.
+- **Take moments** turns E(…) into moments (⟨NA1·NA2⟩ → `M_A1_A2`), grouped by event: rmaxA·(…), s(x−θ)²·(…), m·(…), (…)/K.
+- **Symmetry ▾ Apply** swaps moments, variables, parameters, r_… and events, on the result shown. It tells when the equation is invariant, and warns when the symmetry does not hold for the events.
+
+For example, Generate `M_A1_A1`, then Take moments, then Isserlis gives exactly the level-2 equation of `moment_closure.py`. This is checked for its 14 equations.
 
 ## Look
 
@@ -140,7 +166,7 @@ The window is light, like latex-preview, with its own identity so that it is eas
 python -m pytest
 ```
 
-The tests contain the examples of the specifications (`docs/spec_v0.1.md` to `docs/spec_v0.3.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
+The tests contain the examples of the specifications (`docs/spec_v0.1.md` to `docs/spec_v0.4.md`). They also include two real cases: the 14 equations printed by `moment_closure.py --print-eqs 2`, and the latex-preview translation of d⟨(N_A¹)²⟩/dt, which must equal moment_closure's equation. They were validated with SymPy 1.14. Another SymPy version may order terms differently.
 
 ## Structure
 
@@ -152,6 +178,8 @@ sympy_tools/
     operations.py  # all operations (+ SymPy code shown), which buttons are useful
     closure.py     # Isserlis / Wick on third-order moments
     definitions.py # [definitions]: substitute, and recognize (exact, unique)
+    process.py     # [evenements], [symetries]: checks, Generate, Take moments, symmetry maps
+    events_doc.py  # LaTeX document of the events and symmetries
     output.py      # Python text, LaTeX with the model's names, Overleaf export
     jobs.py        # string-in / string-out entry point, run in a separate process
   ui/              # PySide6 interface

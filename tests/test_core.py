@@ -4,6 +4,7 @@ Cases "VALIDATED n" are the examples of the v0.1 specification, agreed with the
 user on 16/11/2026: they are expected behaviours, not internal choices.
 """
 import pathlib
+import re
 
 import pytest
 import sympy as sp
@@ -350,9 +351,10 @@ def test_validated_20_substitute_definitions():
 
 
 def test_validated_21_buttons_only_when_useful():
-    assert available(read("n_A1*m"), M) == {ISSERLIS: False, SUBSTITUTE: False, RECOGNIZE: False}
-    assert available(read("T_A1_A1_A2 + r_A1"), M) == {ISSERLIS: True, SUBSTITUTE: True,
-                                                        RECOGNIZE: False}
+    a = available(read("n_A1*m"), M)
+    assert (a[ISSERLIS], a[SUBSTITUTE], a[RECOGNIZE]) == (False, False, False)
+    a = available(read("T_A1_A1_A2 + r_A1"), M)
+    assert (a[ISSERLIS], a[SUBSTITUTE], a[RECOGNIZE]) == (True, True, False)
     assert available(read("rmaxA*n_A1"), M)[RECOGNIZE]
     for name, text in ((ISSERLIS, "n_A1"), (SUBSTITUTE, "n_A1"), (RECOGNIZE, "n_A1*m")):
         assert not apply(name, read(text), M).ok
@@ -402,3 +404,127 @@ def test_definitions_errors():
     bad2 = load_model(DEFAULT_MODEL.replace("r_A1 = rmaxA - s*(x1 - thA)**2", "r_A1 = M_A1_MA1"))
     r = apply(SUBSTITUTE, read_expression("r_A1", bad2), bad2)
     assert not r.ok and "Definition r_A1 = M_A1_MA1" in r.error
+
+
+# ------------------------------------------------------------------ v0.4 (VALIDATED 36-45, 17/11/2026)
+from sympy_tools.core.operations import SYMMETRY, TAKE_MOMENTS  # noqa: E402
+from sympy_tools.core.process import generate, process  # noqa: E402
+
+
+def test_validated_36_default_model_process():
+    p = process(M)
+    assert len(p.events) == 12
+    assert [s.name for s in p.symmetries] == ["phenotypes", "niches", "niches + phenotypes"]
+    assert all(s.valid for s in p.symmetries)
+    from latex_preview.core.model import parse_model
+    assert parse_model(DEFAULT_MODEL).var_order == {"A1": 0, "A2": 1, "B1": 2, "B2": 3}
+
+
+def test_validated_37_events_document():
+    from sympy_tools.core.events_doc import events_document
+    tex = events_document(M)
+    assert tex.count(r"\checkmark") == 36 and r"\times$}" not in tex
+    assert r"\textcolor{red}{K_{A}}" in tex or r"\textcolor{red}{K_A}" in tex
+    assert M.lp.param_latex["KA"] in ("K_{A}", "K_A")        # colours do not leak into the model
+
+
+def test_validated_38_symmetry_not_respecting_the_events():
+    bad = load_model(DEFAULT_MODEL.replace(", KA<->KB", ""))
+    niches = process(bad).symmetry("niches")
+    assert niches.checked and sorted(niches.failures) == ["mort_A1", "mort_A2", "mort_B1", "mort_B2"]
+    r = apply(SYMMETRY, read_expression("n_A1", bad), bad, "niches")
+    assert r.ok and "not a symmetry of the events (4 events" in " ".join(r.notes)
+
+
+def test_validated_39_rate_must_vanish():
+    with pytest.raises(ModelError, match="mort_A1: the rate does not vanish when NA1 = 0"):
+        load_model(DEFAULT_MODEL.replace("mort_A1 = (s*(x1 - thA)**2 + (NA1 + NA2)/KA)*NA1 | NA1-1",
+                                         "mort_A1 = s*(x1 - thA)**2 | NA1-1"))
+
+
+@pytest.mark.parametrize("bad, msg", [
+    ("naissance_A1 = rmaxA*NA1 | NA1+1", None),
+    ("naissance_A1 = rmaxA*NA1 | NX1+1", "should look like NA1+1"),
+    ("naissance_A1 = rmaxA*M_A1_A1 | NA1+1", "only use variables"),
+    ("naissance_A1 = rmaxA*NA1", "write 'rate | jump'"),
+])
+def test_event_declaration_errors(bad, msg):
+    text = DEFAULT_MODEL.replace("naissance_A1 = rmaxA*NA1 | NA1+1", bad)
+    if msg is None:
+        load_model(text)
+    else:
+        with pytest.raises(ModelError, match=re.escape(msg)):
+            load_model(text)
+
+
+def test_symmetry_declaration_errors():
+    with pytest.raises(ModelError, match="neither a variable code nor a parameter"):
+        load_model(DEFAULT_MODEL.replace("x1<->x2", "x1<->y2"))
+    with pytest.raises(ModelError, match="swaps a code with a parameter"):
+        load_model(DEFAULT_MODEL.replace("x1<->x2", "A1<->x2"))
+
+
+GEN = ("E(NA1*rmaxA*(2*NA1 + 1), naissance_A1) "
+       "+ E(NA1*(1 - 2*NA1)*(s*(-thA + x1)**2 + (NA1 + NA2)/KA), mort_A1) "
+       "+ E(NA1*m*(1 - 2*NA1), migration_A1_B1) + E(NB1*m*(2*NA1 + 1), migration_B1_A1)")
+
+
+def test_validated_40_generate():
+    lhs, rhs = generate("M_A1_A1", M)
+    assert lhs == "dM_A1_A1_dt" and rhs == GEN
+    e = read_equation(lhs, rhs, M)
+    assert e.ok and ("Events", ["migration_A1_B1", "migration_B1_A1", "mort_A1", "naissance_A1"]) \
+        in categories(e.symbols, M)
+    lat = latex(e.rhs.expr, M)
+    assert lat.startswith(r"\underbrace{\left\langle N_{A}^{x_1} r_{\max,A}")        # birth first
+    assert r"_{\text{migration A1}{\to}\text{B1}}" in lat
+
+
+def test_validated_41_take_moments():
+    lhs, rhs = generate("M_A1_A1", M)
+    r = apply(TAKE_MOMENTS, read_equation(lhs, rhs, M), M)
+    assert r.text == ("dM_A1_A1_dt = m*(-2*M_A1_A1 + n_A1) + m*(2*M_A1_B1 + n_B1) "
+                      "+ rmaxA*(2*M_A1_A1 + n_A1) + s*(-2*M_A1_A1 + n_A1)*(-thA + x1)**2 "
+                      "+ (M_A1_A1 + M_A1_A2 - 2*T_A1_A1_A1 - 2*T_A1_A1_A2)/KA")
+    assert cmp(r.text.split(" = ")[1], EXACT_A1A1).verdict == EQUAL
+
+
+def test_validated_42_generate_take_moments_isserlis_equals_moment_closure_all_14():
+    for key, mc_rhs in _closure_lines():
+        name = key[1:-3]                         # dM_A1_A1/dt -> M_A1_A1
+        lhs, rhs = generate(name, M)
+        t = apply(TAKE_MOMENTS, read_equation(lhs, rhs, M), M)
+        closed = t.rhs
+        if "T_" in t.text:
+            closed = apply(ISSERLIS, read_equation(*t.text.split(" = "), M), M).rhs
+        assert sp.cancel(closed - read(mc_rhs).expr) == 0, key
+
+
+def test_validated_43_symmetry_of_a_generated_equation():
+    lhs, rhs = generate("M_A1_A1", M)
+    r = apply(SYMMETRY, read_equation(lhs, rhs, M), M, "phenotypes")
+    direct = read_equation(*generate("M_A2_A2", M), M)
+    assert r.lhs == direct.lhs.expr and r.rhs == direct.rhs.expr
+    assert "naissance_A2" in r.text and not r.notes
+
+
+def test_validated_44_invariant_equation():
+    mc = dict(_closure_lines())["dM_A1_B1/dt"]
+    r = apply(SYMMETRY, read(mc), M, "niches")
+    assert sp.expand(r.expr - read(mc).expr) == 0
+    assert r.notes == ["Invariant under niches: the equation does not change."]
+
+
+def test_validated_45_combined_symmetry():
+    lines = dict(_closure_lines())
+    r = apply(SYMMETRY, read_equation("dn_A1_dt", lines["dn_A1/dt"], M), M, "niches + phenotypes")
+    assert sp.sstr(r.lhs) == "dn_B2_dt"
+    assert sp.cancel(r.rhs - read(lines["dn_B2/dt"]).expr) == 0
+    assert r.code[0].startswith("rules = {") and r.code[-1] == "lhs, rhs = lhs.xreplace(rules), rhs.xreplace(rules)"
+
+
+def test_e_reading_errors():
+    for text, msg in (("E(n_A1, naissance_A1)", "not moments"), ("E(NA1, delta)", "event of the model"),
+                      ("2*naissance_A1", "second argument of E")):
+        r = read(text)
+        assert not r.ok and msg in texts(r)

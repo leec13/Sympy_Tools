@@ -16,15 +16,18 @@ from PySide6.QtCore import QByteArray, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import (QAction, QFont, QFontDatabase, QKeySequence, QStandardItem,
                            QStandardItemModel, QTextCursor)
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QFileDialog,
-                               QFormLayout, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox,
+                               QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu,
+                               QMessageBox,
                                QPlainTextEdit, QPushButton, QRadioButton, QToolButton, QVBoxLayout, QWidget)
 
 from ..core import jobs
 from ..core.jobs import EQUATION, EXPRESSION
 from ..core.model import ModelError, load_model
 from ..core.operations import (ALL_MOMENTS, COLLECT, COMPARE, EXPAND, FACTOR,
-                               ISSERLIS, OPERATIONS, RECOGNIZE, SIMPLIFY, SUBSTITUTE, available,
-                               chain_code)
+                               ISSERLIS, OPERATIONS, RECOGNIZE, SIMPLIFY, SUBSTITUTE, SYMMETRY,
+                               TAKE_MOMENTS, available, chain_code)
+from ..core.process import generate as generate_equation
+from ..core.process import process as model_process
 from ..core.output import overleaf, reading_latex
 from ..core.reading import ERROR, WARNING, categories, read_equation, read_expression, split_equation
 from ..settings import Settings
@@ -146,7 +149,8 @@ class MainWindow(QMainWindow):
         self.model_label = QLabel()
         self.model_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         row.addWidget(self.model_label, 1)
-        for label, slot in (("Edit model…", self.edit_model), ("Load model…", self.load_model_file),
+        for label, slot in (("Events…", self.show_events),
+                            ("Edit model…", self.edit_model), ("Load model…", self.load_model_file),
                             ("Save model as…", self.save_model_file)):
             b = QPushButton(label)
             b.clicked.connect(slot)
@@ -235,6 +239,43 @@ class MainWindow(QMainWindow):
         self.stop_button.setVisible(False)
         self.stop_button.clicked.connect(self.stop)
         row.addWidget(self.stop_button)
+        row.addStretch(1)
+        root.addLayout(row)
+
+        # --- process: generate from the events, take moments, symmetries
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Process:"))
+        self.moment_field = QLineEdit()
+        self.moment_field.setPlaceholderText("M_A1_A1")
+        self.moment_field.setText(self.s.get("generate_moment"))
+        self.moment_field.setFixedWidth(130)
+        self.moment_field.setToolTip("Moment whose equation is generated from the events (n_A1, M_A1_A2, T_…)")
+        self.moment_field.returnPressed.connect(self.generate)
+        row.addWidget(self.moment_field)
+        self.generate_button = QPushButton("Generate d/dt")
+        self.generate_button.setToolTip("Write d<moment>/dt event by event, as the input (Equation mode)")
+        self.generate_button.clicked.connect(self.generate)
+        row.addWidget(self.generate_button)
+        b = QPushButton(OPERATIONS[TAKE_MOMENTS])
+        b.setShortcut(QKeySequence("Ctrl+9"))
+        b.setToolTip("E(…): expand, and each product of N becomes its moment (⟨NA1·NA1⟩ → M_A1_A1)   "
+                     f"({QKeySequence('Ctrl+9').toString(QKeySequence.SequenceFormat.NativeText)})")
+        b.clicked.connect(lambda: self.run(TAKE_MOMENTS))
+        self.op_buttons[TAKE_MOMENTS] = b
+        row.addWidget(b)
+        row.addSpacing(16)
+        row.addWidget(QLabel("Symmetry:"))
+        self.symmetry_combo = QComboBox()
+        self.symmetry_combo.setMinimumContentsLength(18)
+        self.symmetry_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        row.addWidget(self.symmetry_combo)
+        b = QPushButton("Apply")
+        b.setShortcut(QKeySequence("Ctrl+0"))
+        b.setToolTip("Apply the symmetry (moments, parameters, r_… and events swapped)   "
+                     f"({QKeySequence('Ctrl+0').toString(QKeySequence.SequenceFormat.NativeText)})")
+        b.clicked.connect(lambda: self.run(SYMMETRY))
+        self.op_buttons[SYMMETRY] = b
+        row.addWidget(b)
         row.addStretch(1)
         root.addLayout(row)
 
@@ -382,7 +423,24 @@ class MainWindow(QMainWindow):
                 self.rhs_edit.toPlainText(), self._model_text)
 
     # ================================================================ model
+    def _fill_symmetry_combo(self) -> None:
+        previous = self.symmetry_combo.currentData()
+        self.symmetry_combo.clear()
+        try:
+            syms = model_process(self.model).symmetries
+        except Exception:  # noqa: BLE001 - the model was checked when loaded
+            syms = []
+        for sym in syms:
+            text = sym.name if (sym.valid or not sym.checked) else f"{sym.name}  ✗"
+            self.symmetry_combo.addItem(text, sym.name)
+        if not syms:
+            self.symmetry_combo.addItem("(none in the model)", None)
+        k = self.symmetry_combo.findData(previous)
+        if k >= 0:
+            self.symmetry_combo.setCurrentIndex(k)
+
     def _update_model_label(self) -> None:
+        self._fill_symmetry_combo()
         name = os.path.basename(self._model_path) if self._model_path else "default"
         if self._model_edited:
             name += " (edited)"
@@ -553,7 +611,7 @@ class MainWindow(QMainWindow):
                     text += "   (not in model)"
                 item = QStandardItem(text)
                 item.setData(name, Qt.ItemDataRole.UserRole)
-                if label == "Functions":
+                if label in ("Functions", "Events"):
                     item.setEnabled(False)
                 model.appendRow(item)
         for row in range(model.rowCount()):
@@ -618,6 +676,24 @@ class MainWindow(QMainWindow):
         self.latex_view.setPlainText(shown.latex)
         self._render_timer.start(150)
 
+    def generate(self) -> None:
+        name = self.moment_field.text().strip() or "M_A1_A1"
+        try:
+            lhs, rhs = generate_equation(name, self.model)
+        except (ValueError, ModelError) as exc:
+            QMessageBox.warning(self, "Generate", str(exc))
+            return
+        self.s.set("generate_moment", name)
+        self.lhs_edit.setPlainText(lhs)
+        self.rhs_edit.setPlainText(rhs)
+        self.rb_eq.setChecked(True)
+        self._read_input()
+        self.statusBar().showMessage(f"{lhs}: generated from the events (now the input).", 5000)
+
+    def show_events(self) -> None:
+        from .events_dialog import EventsDialog
+        EventsDialog(self.model, self, self.s.get("last_dir")).exec()
+
     def _fit_code_view(self) -> None:
         """The SymPy code pane grows with the chain (3 to 7 lines), then scrolls."""
         v = self.code_view
@@ -634,6 +710,11 @@ class MainWindow(QMainWindow):
         if op == COLLECT and not var:
             self.statusBar().showMessage("Choose a variable for Collect by.", 4000)
             return
+        if op == SYMMETRY:
+            var = self.symmetry_combo.currentData() or ""
+            if not var:
+                self.statusBar().showMessage("The model declares no symmetry.", 4000)
+                return
         mode, text, lhs, rhs, model_text = self._inputs()
         if self._current is not None:          # chain: start from the result shown
             if mode == EQUATION:
@@ -643,6 +724,8 @@ class MainWindow(QMainWindow):
         label = OPERATIONS[op]
         if op == COLLECT:
             label += " all moments" if var == ALL_MOMENTS else f" {var}"
+        if op == SYMMETRY:
+            label += f" {var}"
         self._pending = (op, label, self._version)
         self._request_input = self._inputs()
         self._request = self.runner.submit(jobs.run_operation, timeout_s=60.0, model_text=model_text,
